@@ -28,16 +28,5 @@
  MODIFICATIONS.
 */
 
-import java.io.File
-import scopt._
-case class Config(gen: Boolean = false)
-object Main extends App {
-val parser = new scopt.OptionParser[Config]("graphmatch") {
-  head("graphmatch","0.1")
-  opt[Unit]('g', "gen") action { (_, c) =>  c.copy(gen = true)}
-                           text.DocText("Generates a neo4j database using bg.json located in .")
-}
 
-parser.parse(args, Config()) map { config => if (config.gen) { new GenDb
-                                              println("Data base successfully generated")} }
-}
+

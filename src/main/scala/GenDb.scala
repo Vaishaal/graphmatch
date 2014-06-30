@@ -58,7 +58,7 @@ object Feature {
   casecodec8(Feature.apply, Feature.unapply)("type","key","x", "y","height","length","degree", "edges")
 }
 
-object GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
+class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
    ShutdownHookThread {
        shutdown(ds)
     }
