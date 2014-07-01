@@ -53,7 +53,7 @@ object Matcher {
     val lines = source.mkString
     source.close()
 
-    val nodes = lines.decodeOption[List[Node]].getOrElse(Nil)
+    val nodes = lines.decodeOption[List[QueryNode]].getOrElse(Nil)
     val matcher = new Matcher(db, nodes)
 
     // Decompose the query into all possible paths of a given length.
@@ -74,14 +74,14 @@ object Matcher {
 
 }
 
-class Matcher (database: Database, nodeList: List[Node]) {
+class Matcher (database: Database, nodeList: List[QueryNode]) {
   val db = database
-  val nodes = MMap[Int, Node]()
+  val nodes = MMap[Int, QueryNode]()
   for (node <- nodeList) {
     nodes(node.key) = node
   }
 
-  private def computeCost (paths: List[List[Node]], minProb: Double) : List[Double] = {
+  private def computeCost (paths: List[List[QueryNode]], minProb: Double) : List[Double] = {
     val costs = ListBuffer[Double]()
     for ((path, i) <- paths.view.zipWithIndex) {
       costs += this.db.pIndexHist(this.labels(path), minProb)/(this.degree(path)*this.density(path))
@@ -89,17 +89,17 @@ class Matcher (database: Database, nodeList: List[Node]) {
     costs.toList
   }
 
-  private def coverQuery (paths: List[List[Node]], costs: List[Double])
-    : List[List[Node]] = {
+  private def coverQuery (paths: List[List[QueryNode]], costs: List[Double])
+    : List[List[QueryNode]] = {
     val efficiency = ListBuffer[Double]()
     for ((cost, i) <- costs.view.zipWithIndex) {
       efficiency += paths(i).length/cost
     }
     val pathEfficiency = (paths, efficiency.toList).zipped.toList
     val sortedPaths = pathEfficiency.sortWith(
-      (x: (List[Node], Double), y: (List[Node], Double)) => x._2 > y._2)
+      (x: (List[QueryNode], Double), y: (List[QueryNode], Double)) => x._2 > y._2)
     val pathsIter = sortedPaths.toIterator
-    val coveringPaths = ListBuffer[List[Node]]()
+    val coveringPaths = ListBuffer[List[QueryNode]]()
     val covered = Set[Int]()
     var target = this.nodes.keySet
     for ((key, node) <- this.nodes) {
@@ -115,23 +115,23 @@ class Matcher (database: Database, nodeList: List[Node]) {
     coveringPaths.toList
   }
 
-  private def getPaths (maxLength: Int) : List[List[Node]] = {
+  private def getPaths (maxLength: Int) : List[List[QueryNode]] = {
 
     val visited = MMap[Int, Boolean]().withDefaultValue(false)
-    val paths = ListBuffer[ListBuffer[Node]]()
+    val paths = ListBuffer[ListBuffer[QueryNode]]()
     for ((key, node) <- this.nodes) {
       paths ++= getPathsHelper(maxLength, node, 0, visited)
     }
-    val output = ListBuffer[List[Node]]()
+    val output = ListBuffer[List[QueryNode]]()
     for (path <- paths) {
       output += path.toList
     }
     output.toList
   }
 
-  private def getPathsHelper (maxLength: Int, current: Node, depth: Int, visited: MMap[Int, Boolean])
-    : ListBuffer[ListBuffer[Node]] = {
-    var paths = ListBuffer[ListBuffer[Node]]()
+  private def getPathsHelper (maxLength: Int, current: QueryNode, depth: Int, visited: MMap[Int, Boolean])
+    : ListBuffer[ListBuffer[QueryNode]] = {
+    var paths = ListBuffer[ListBuffer[QueryNode]]()
     if (depth < maxLength && current.edges.length > 0) {
       visited(current.key) = true
       for (edge <- current.edges) {
@@ -150,20 +150,20 @@ class Matcher (database: Database, nodeList: List[Node]) {
     paths
   }
 
-  private def labels (path: List[Node]) : Array[Double] = {
+  private def labels (path: List[QueryNode]) : Array[Double] = {
     val stub = new Array[Double](1)
     stub(0) = 0.0
     stub
   }
 
-  private def degree (path: List[Node]) : Int = {
+  private def degree (path: List[QueryNode]) : Int = {
     var total = 0
     for (node <- path) {
     }
     total - 2*(path.length - 1)
   }
 
-  private def density (path: List[Node]) : Double = {
+  private def density (path: List[QueryNode]) : Double = {
     var internalEdges = 0
     //TODO: If the graph is undirected we'll have to divide this by 2.
     for (node <- path) {
@@ -190,9 +190,9 @@ class Database () {
   }
 }
 
-case class Node(key: Int, nodeType: Int, edges: List[Int])
+case class QueryNode(key: Int, nodeType: Int, edges: List[Int])
 
-object Node {
-  implicit def NodeCodecJson: CodecJson[Node] =
-    casecodec3(Node.apply, Node.unapply)("key", "nodeType", "edges")
+object QueryNode {
+  implicit def QueryNodeCodecJson: CodecJson[QueryNode] =
+    casecodec3(QueryNode.apply, QueryNode.unapply)("key", "nodeType", "edges")
 }
