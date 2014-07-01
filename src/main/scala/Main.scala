@@ -28,6 +28,7 @@
  MODIFICATIONS.
 */
 
+package com.finder.graphmatch
 import java.io.File
 import scopt._
 case class Config(gen: Boolean = false)
@@ -38,6 +39,9 @@ val parser = new scopt.OptionParser[Config]("graphmatch") {
                            text.DocText("Generates a neo4j database using bg.json located in .")
 }
 
-parser.parse(args, Config()) map { config => if (config.gen) { new GenDb
-                                              println("Data base successfully generated")} }
+parser.parse(args, Config()) map {
+  config => if (config.gen) { new GenDb
+                              println("Data base successfully generated")
+                            }
+  }
 }

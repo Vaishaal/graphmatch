@@ -28,6 +28,7 @@
  MODIFICATIONS.
 */
 
+package com.finder.graphmatch
 import scala.util.parsing.json._
 import eu.fakod.neo4jscala._
 import sys.ShutdownHookThread
@@ -69,9 +70,9 @@ class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with 
         }
     }
 
-
    override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
                                   ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) :: Nil
+
    def neo4jStoreDir = "/tmp/test.db"
    val graph_json = io.Source.fromFile("bg2.json").mkString
    val decode = graph_json.decodeOption[List[Feature]].getOrElse(Nil)
