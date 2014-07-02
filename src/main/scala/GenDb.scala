@@ -42,21 +42,22 @@ import org.neo4j.graphdb._
 import org.neo4j.kernel.Traversal._
 import sys.process._
 
-case class Feature(`type`: Int,
+case class Feature(nodeType: Int,
                     key: Int,
                     x: Option[Double],
                     y: Option[Double],
                     height: Option[Int],
                     length: Option[Int],
                     degree: Option[Int],
+                    roadClass: Option[Int],
                     edges: Option[List[Int]])
 
-case class Feature2(`type`:Int, key:Int, x:Double, y:Double, height:Int, length:Int,
+case class Feature2(nodeType:Int, key:Int, x:Double, y:Double, height:Int, length:Int, roadClass:Int,
                     degree:Int)
 
 object Feature {
   implicit def featureCodecJson: CodecJson[Feature] =
-  casecodec8(Feature.apply, Feature.unapply)("type","key","x", "y","height","length","degree", "edges")
+  casecodec9(Feature.apply, Feature.unapply)("nodeType","key","x", "y","height","length","degree", "roadClass", "edges")
 }
 
 class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
@@ -66,8 +67,7 @@ class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with 
 
     implicit def f2f(f:Feature) = {
         f match {
-          case Feature(t,k,x,y,h,l,d,e) => Feature2(t,k,x.getOrElse(0),y.getOrElse(0),h.getOrElse(-1),l.getOrElse(-1),d.getOrElse(-1))
-        }
+          case Feature(t,k,x,y,h,l,d,rc,e) => Feature2(t,k,x.getOrElse(0),y.getOrElse(0),h.getOrElse(-1),l.getOrElse(-1),rc.getOrElse(-1), d.getOrElse(-1)) }
     }
 
    override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
@@ -94,7 +94,7 @@ class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with 
           val node = nodes(k)
           source --> "NEXT_TO" --> node
           node --> "NEXT_TO" --> sink
-          v.`type` match {
+          v.nodeType match {
             case 0 => processBuilding(v, node)
             case 1 => processIntersection(v, node)
             case 2 => processRoad(v, node)
@@ -107,7 +107,7 @@ class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with 
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.get(e)
         if (node_f.nonEmpty) {
-          node_f.get.`type` match {
+          node_f.get.nodeType match {
             case 0 => n --> "NEXT_TO" --> node
             case 1 => n --> "NEXT_TO" --> node
             case 2 => n --> "ON" --> node
@@ -122,7 +122,7 @@ class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with 
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.get(e)
         if (node_f.nonEmpty) {
-          node_f.get.`type` match {
+          node_f.get.nodeType match {
             case 0 => n --> "NEXT_TO" --> node
             case 1 => //
             case 2 => n --> "CONNECTS" --> node

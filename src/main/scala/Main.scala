@@ -43,5 +43,6 @@ parser.parse(args, Config()) map {
   config => if (config.gen) { new GenDb
                               println("Data base successfully generated")
                             }
+            Matcher.query("/home/vaishaal/Dropbox/query_002.png_node_list.json")
   }
 }
