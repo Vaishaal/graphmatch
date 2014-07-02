@@ -52,7 +52,7 @@ case class Feature(nodeType: Int,
                     roadClass: Option[Int],
                     edges: Option[List[Int]])
 
-case class Feature2(nodeType:Int, key:Int, x:Double, y:Double, height:Int, length:Int, roadClass:Int,
+case class FeatureDefaults(nodeType:Int, key:Int, x:Double, y:Double, height:Int, length:Int, roadClass:Int,
                     degree:Int)
 
 object Feature {
@@ -67,7 +67,7 @@ class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with 
 
     implicit def f2f(f:Feature) = {
         f match {
-          case Feature(t,k,x,y,h,l,d,rc,e) => Feature2(t,k,x.getOrElse(0),y.getOrElse(0),h.getOrElse(-1),l.getOrElse(-1),rc.getOrElse(-1), d.getOrElse(-1)) }
+          case Feature(t,k,x,y,h,l,d,rc,e) => FeatureDefaults(t,k,x.getOrElse(0),y.getOrElse(0),h.getOrElse(-1),l.getOrElse(-1),rc.getOrElse(-1), d.getOrElse(-1)) }
     }
 
    override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
