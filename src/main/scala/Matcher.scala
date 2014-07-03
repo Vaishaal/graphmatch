@@ -81,6 +81,7 @@ object Matcher {
 
     // Decompose the query into all possible paths of a given length.
     val paths = matcher.getPaths(maxDepth)
+
     // Compute the costs of each path.
     val costs = matcher.computeCost(paths, 0.5)
 
@@ -114,8 +115,17 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
   private def computeCost (paths: List[List[Feature]], minProb: Double) : List[Double] = {
     val costs = ListBuffer[Double]()
     for ((path, i) <- paths.view.zipWithIndex) {
-      costs += this.pIndexHist(path, minProb)/(this.degree(path)*this.density(path))
+      //costs += this.pIndexHist(path, minProb)/(this.degree(path)*this.density(path))
+      costs += (20.0 - 1.2*path.length)/(this.degree(path)*this.density(path))
+      if (path.length > 50) {
+        println(path.length)
+        println("pind: " + this.pIndexHist(path, minProb))
+        println("degree: " + this.degree(path))
+        println("density: " + this.density(path))
+        println("----")
+      }
     }
+    //println(costs)
     costs.toList
   }
 
@@ -139,8 +149,16 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
     }
     while (covered != target && pathsIter.hasNext) {
       val nextPath = pathsIter.next
-      coveringPaths += nextPath._1
-      covered ++= (for (node <- nextPath._1) yield node.key)
+      var include = false
+      for (node <- nextPath._1) {
+        if (!covered.contains(node.key)) {
+          include = true
+        }
+      }
+      if (include) {
+        coveringPaths += nextPath._1
+        covered ++= (for (node <- nextPath._1) yield node.key)
+      }
     }
     coveringPaths.toList
   }
@@ -182,7 +200,9 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
     val visited = MMap[Int, Boolean]().withDefaultValue(false)
     val paths = ListBuffer[ListBuffer[Feature]]()
     for ((key, node) <- this.nodes) {
-      paths ++= getPathsHelper(maxLength, node, 0, visited)
+      if (node.nodeType != Matcher.ROAD) {
+        paths ++= getPathsHelper(maxLength, node, 0, visited)
+      }
     }
     val output = ListBuffer[List[Feature]]()
     for (path <- paths) {
@@ -216,6 +236,7 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
   private def degree (path: List[Feature]) : Int = {
     var total = 0
     for (node <- path) {
+      total += node.edges.get.length
     }
     total - 2*(path.length - 1)
   }
@@ -224,15 +245,16 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
     var internalEdges = 0
     //TODO: If the graph is undirected we'll have to divide this by 2.
     for (node <- path) {
-      for (edge <- node.edges) {
-        if (path.contains(edge)) {
+      for (edge <- node.edges.get) {
+        if (path.contains(this.nodes(edge))) {
           internalEdges += 1
         }
       }
     }
     var result = 0.0
     if (path.length > 1) {
-      result = 2.0*internalEdges/(path.length*(path.length - 1))
+      // Shoulve be 2*internalEdges but they get doulble counted in a UDGraph.
+      result = internalEdges/(path.length*(path.length - 1.0))
     } else {
       result = 1.0
     }
@@ -264,6 +286,28 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
     }
     neighborMap
   }
+/*
+  private def makeUndirected () : Unit = {
+    // Create a map that contains lists of nodes that point to a particular node.
+    // This function is currently moot because everything is immutable.
+    val reverseEdges = MMap[Int, ListBuffer[Int]]()
+    for ((key, node) <- this.nodes) {
+      for (edge <- node.edges.get) {
+        if (reverseEdges.contains(edge)) {
+          reverseEdges(edge) += key
+        } else {
+          reverseEdges(edge) = ListBuffer(key)
+        }
+      }
+    }
+    for ((key, node) <- this.nodes) {
+      for (edge <- reverseEdges(key)) {
+        if (node.edges.get.contains(edge)) {
+        }
+      }
+    }
+  }
+*/
 }
 
 
