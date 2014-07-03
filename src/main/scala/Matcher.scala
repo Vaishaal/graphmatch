@@ -35,8 +35,12 @@ import scala.collection.mutable.Stack
 import scala.collection.mutable.Set
 import scala.collection.mutable.ListBuffer
 import scala.collection.immutable.Range
+import com.mongodb.casbah.Imports._
 import scala.io.Source.fromFile
 import argonaut._, Argonaut._
+import org.json4s.jackson.JsonMethods._
+import org.json4s.JsonDSL._
+import org.json4s._
 
 object Matcher {
   val BUILDING = 0
@@ -46,7 +50,6 @@ object Matcher {
   def query(query:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
 
     val source = fromFile(query)
-    val db = new PathDatabase()
     //TODO: Read in the attributes.
 
     val maxDepth = 20
@@ -54,7 +57,7 @@ object Matcher {
     val lines = source.mkString
     source.close()
     val nodes = lines.decodeOption[List[Feature]].getOrElse(Nil)
-    val matcher = new Matcher(db, nodes)
+    val matcher = new Matcher(nodes)
 
     // Decompose the query into all possible paths of a given length.
     val paths = matcher.getPaths(maxDepth)
@@ -73,8 +76,7 @@ object Matcher {
 
 }
 
-class Matcher (database: PathDatabase, nodeList: List[Feature]) {
-  val db = database
+class Matcher (nodeList: List[Feature]) {
   val nodes = MMap[Int, Feature]()
   for (node <- nodeList) {
     nodes(node.key) = node
@@ -83,7 +85,7 @@ class Matcher (database: PathDatabase, nodeList: List[Feature]) {
   private def computeCost (paths: List[List[Feature]], minProb: Double) : List[Double] = {
     val costs = ListBuffer[Double]()
     for ((path, i) <- paths.view.zipWithIndex) {
-      costs += this.db.pIndexHist(this.labels(path), minProb)/(this.degree(path)*this.density(path))
+      costs += this.pIndexHist(path, minProb)/(this.degree(path)*this.density(path))
     }
     costs.toList
   }
@@ -112,6 +114,23 @@ class Matcher (database: PathDatabase, nodeList: List[Feature]) {
       covered ++= (for (node <- nextPath._1) yield node.key)
     }
     coveringPaths.toList
+  }
+
+  private def pIndexHist(path: List[Feature], minProb: Double) : Int =
+  {
+    val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::Nil))
+    val db = MongoClient()("graphmatch")
+    val col = db("histogram")
+    val kJson = compact(render(key))
+    val o = MongoDBObject("_id" -> kJson)
+    val result = col.findOne(o)
+    /* TODO: DO NOT USE asInstanceOf here */
+    val count = result.map(x => x.getAs[Int]("count")).getOrElse(Some(0)).getOrElse(0)
+    if (count == 0) {
+      Int.MaxValue
+    } else {
+      count
+    }
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {
@@ -149,11 +168,6 @@ class Matcher (database: PathDatabase, nodeList: List[Feature]) {
     paths
   }
 
-  private def labels (path: List[Feature]) : Array[Double] = {
-    val stub = new Array[Double](1)
-    stub(0) = 0.0
-    stub
-  }
 
   private def degree (path: List[Feature]) : Int = {
     var total = 0
@@ -182,10 +196,4 @@ class Matcher (database: PathDatabase, nodeList: List[Feature]) {
   }
 }
 
-
-class PathDatabase () {
-  def pIndexHist (pathLabels: Array[Double], minProb: Double) : Double = {
-    1.0
-  }
-}
 
