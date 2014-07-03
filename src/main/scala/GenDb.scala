@@ -96,7 +96,7 @@ implicit def f2f(f:Feature) = {
     val graph_json = scala.io.Source.fromFile("bg2.json").mkString
     val decode = graph_json.decodeOption[List[Feature]].getOrElse(Nil)
     val node_map = (for (p <- decode) yield (p.key, p)).toMap
-    val N = 10
+    val N = 11
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
 
