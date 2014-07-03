@@ -31,17 +31,46 @@
 package com.finder.graphmatch
 import java.io.File
 import scopt._
-case class Config(gen: Boolean = false)
+import sys.process._
+import com.mongodb.casbah.Imports._
+
+case class Config(gen: Boolean = false,
+                  reset: Boolean = false,
+                  query: String = "",
+                  dbpath: String = "/tmp/test.db")
 object Main extends App {
+
 val parser = new scopt.OptionParser[Config]("graphmatch") {
   head("graphmatch","0.1")
-  opt[Unit]('g', "gen") action { (_, c) =>  c.copy(gen = true)}
-                           text.DocText("Generates a neo4j database using bg.json located in .")
+  opt[Unit]('g', "gen")
+  .action { (_, c) =>  c.copy(gen = true)}
+  .text("Generates a neo4j database using bg.json located in .")
+
+  opt[Unit]('r', "reset")
+  .action { (_, c) =>  c.copy(reset = true)}
+  .text("Deletes existing neo4j database")
+
+  opt[String]('q', "query")
+  .action { (x, c) => c.copy(query = x)}
+  .text("Required: Query location")
+  .required()
+
+  opt[String]('d', "dbpath")
+  .action { (x, c) =>  c.copy(dbpath = x)}
+  .text("Location of neo4j database ")
+
+
 }
 
+
 parser.parse(args, Config()) map {
-  config => if (config.gen) { new GenDb
+  config => if (config.reset) {
+                               ("rm -rf " + config.dbpath).!!
+                               MongoClient()("graphmatch").dropDatabase()
+                              }
+            if (config.gen) { new GenDb
                               println("Data base successfully generated")
                             }
+            Matcher.query(config.query)
   }
 }

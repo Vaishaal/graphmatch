@@ -42,23 +42,22 @@ object Matcher {
   val BUILDING = 0
   val INTERSECTION = 1
   val ROAD = 2
-  def query(query:String, maxLength:Int):Unit =  {
+  val MAX_PATH_LENGTH = 10
+  def query(query:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
 
     val source = fromFile(query)
-    val db = new Database()
+    val db = new PathDatabase()
     //TODO: Read in the attributes.
 
     val maxDepth = 20
 
     val lines = source.mkString
     source.close()
-
-    val nodes = lines.decodeOption[List[QueryNode]].getOrElse(Nil)
+    val nodes = lines.decodeOption[List[Feature]].getOrElse(Nil)
     val matcher = new Matcher(db, nodes)
 
     // Decompose the query into all possible paths of a given length.
     val paths = matcher.getPaths(maxDepth)
-
     // Compute the costs of each path.
     val costs = matcher.computeCost(paths, 0.5)
 
@@ -74,14 +73,14 @@ object Matcher {
 
 }
 
-class Matcher (database: Database, nodeList: List[QueryNode]) {
+class Matcher (database: PathDatabase, nodeList: List[Feature]) {
   val db = database
-  val nodes = MMap[Int, QueryNode]()
+  val nodes = MMap[Int, Feature]()
   for (node <- nodeList) {
     nodes(node.key) = node
   }
 
-  private def computeCost (paths: List[List[QueryNode]], minProb: Double) : List[Double] = {
+  private def computeCost (paths: List[List[Feature]], minProb: Double) : List[Double] = {
     val costs = ListBuffer[Double]()
     for ((path, i) <- paths.view.zipWithIndex) {
       costs += this.db.pIndexHist(this.labels(path), minProb)/(this.degree(path)*this.density(path))
@@ -89,17 +88,17 @@ class Matcher (database: Database, nodeList: List[QueryNode]) {
     costs.toList
   }
 
-  private def coverQuery (paths: List[List[QueryNode]], costs: List[Double])
-    : List[List[QueryNode]] = {
+  private def coverQuery (paths: List[List[Feature]], costs: List[Double])
+    : List[List[Feature]] = {
     val efficiency = ListBuffer[Double]()
     for ((cost, i) <- costs.view.zipWithIndex) {
       efficiency += paths(i).length/cost
     }
     val pathEfficiency = (paths, efficiency.toList).zipped.toList
     val sortedPaths = pathEfficiency.sortWith(
-      (x: (List[QueryNode], Double), y: (List[QueryNode], Double)) => x._2 > y._2)
+      (x: (List[Feature], Double), y: (List[Feature], Double)) => x._2 > y._2)
     val pathsIter = sortedPaths.toIterator
-    val coveringPaths = ListBuffer[List[QueryNode]]()
+    val coveringPaths = ListBuffer[List[Feature]]()
     val covered = Set[Int]()
     var target = this.nodes.keySet
     for ((key, node) <- this.nodes) {
@@ -115,26 +114,26 @@ class Matcher (database: Database, nodeList: List[QueryNode]) {
     coveringPaths.toList
   }
 
-  private def getPaths (maxLength: Int) : List[List[QueryNode]] = {
+  private def getPaths (maxLength: Int) : List[List[Feature]] = {
 
     val visited = MMap[Int, Boolean]().withDefaultValue(false)
-    val paths = ListBuffer[ListBuffer[QueryNode]]()
+    val paths = ListBuffer[ListBuffer[Feature]]()
     for ((key, node) <- this.nodes) {
       paths ++= getPathsHelper(maxLength, node, 0, visited)
     }
-    val output = ListBuffer[List[QueryNode]]()
+    val output = ListBuffer[List[Feature]]()
     for (path <- paths) {
       output += path.toList
     }
     output.toList
   }
 
-  private def getPathsHelper (maxLength: Int, current: QueryNode, depth: Int, visited: MMap[Int, Boolean])
-    : ListBuffer[ListBuffer[QueryNode]] = {
-    var paths = ListBuffer[ListBuffer[QueryNode]]()
-    if (depth < maxLength && current.edges.length > 0) {
+  private def getPathsHelper (maxLength: Int, current: Feature, depth: Int, visited: MMap[Int, Boolean])
+    : ListBuffer[ListBuffer[Feature]] = {
+    var paths = ListBuffer[ListBuffer[Feature]]()
+    if (depth < maxLength && current.edges.nonEmpty ) {
       visited(current.key) = true
-      for (edge <- current.edges) {
+      for (edge <- current.edges.getOrElse(Nil)) {
         if (!visited(edge) && this.nodes(edge).nodeType != Matcher.ROAD) {
           paths ++= getPathsHelper(maxLength, this.nodes(edge), depth + 1, visited)
         }
@@ -150,20 +149,20 @@ class Matcher (database: Database, nodeList: List[QueryNode]) {
     paths
   }
 
-  private def labels (path: List[QueryNode]) : Array[Double] = {
+  private def labels (path: List[Feature]) : Array[Double] = {
     val stub = new Array[Double](1)
     stub(0) = 0.0
     stub
   }
 
-  private def degree (path: List[QueryNode]) : Int = {
+  private def degree (path: List[Feature]) : Int = {
     var total = 0
     for (node <- path) {
     }
     total - 2*(path.length - 1)
   }
 
-  private def density (path: List[QueryNode]) : Double = {
+  private def density (path: List[Feature]) : Double = {
     var internalEdges = 0
     //TODO: If the graph is undirected we'll have to divide this by 2.
     for (node <- path) {
@@ -184,15 +183,9 @@ class Matcher (database: Database, nodeList: List[QueryNode]) {
 }
 
 
-class Database () {
+class PathDatabase () {
   def pIndexHist (pathLabels: Array[Double], minProb: Double) : Double = {
     1.0
   }
 }
 
-case class QueryNode(key: Int, nodeType: Int, edges: List[Int])
-
-object QueryNode {
-  implicit def QueryNodeCodecJson: CodecJson[QueryNode] =
-    casecodec3(QueryNode.apply, QueryNode.unapply)("key", "nodeType", "edges")
-}
