@@ -87,10 +87,13 @@ object Matcher {
 
     // Use greedy set cover to compute the best paths decomposition.
     val coveringPaths = matcher.coverQuery(paths, costs)
+    println(coveringPaths.length)
 
-    // Compute node level statistics.
+    // Compute node level statistics and get candidate nodes.
+    val candidateNodes = matcher.getCandidateNodes()
 
-    // Compute path level statistics.
+    // Compute path level statistics and get candidate paths.
+    val candidatePaths = matcher.getCandidatePaths(candidateNodes, coveringPaths)
 
     // Build joint search space graph.
   }
@@ -193,6 +196,13 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
      implicit val formats = Serialization.formats(NoTypeHints)
      val parsedPaths = Serialization.read[List[List[Int]]](paths)
      parsedPaths
+  }
+  private def getCandidateNodes() : List[Feature] = {
+    List[Feature]()
+  }
+
+  private def getCandidatePaths(candidateNodes: List[Feature], coveringPaths: List[List[Feature]]) : List[List[Feature]] = {
+    List[List[Feature]]()
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {
