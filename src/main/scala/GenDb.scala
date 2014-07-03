@@ -99,7 +99,6 @@ implicit def f2f(f:Feature) = {
     val N = 10
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
-    val MONGO_PORT =  27017
 
     val (source, sink) =
       withTx {
@@ -169,7 +168,7 @@ implicit def f2f(f:Feature) = {
                 z.getProperty("degree").asInstanceOf[Int]::
                 Nil).drop(1).dropRight(1).toList).toList
     // Create a histogram of paths store in mongoDB
-    val mongoClient = MongoClient("localhost", MONGO_PORT)
+    val mongoClient = MongoClient()
     val map = new collection.mutable.HashMap[List[List[Int]],Int]
     val db = mongoClient("graphmatch")
     val col = db("histogram")
