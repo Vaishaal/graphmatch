@@ -46,7 +46,7 @@ object Matcher {
   def query(query:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
 
     val source = fromFile(query)
-    val db = new Database()
+    val db = new PathDatabase()
     //TODO: Read in the attributes.
 
     val maxDepth = 20
@@ -73,7 +73,7 @@ object Matcher {
 
 }
 
-class Matcher (database: Database, nodeList: List[Feature]) {
+class Matcher (database: PathDatabase, nodeList: List[Feature]) {
   val db = database
   val nodes = MMap[Int, Feature]()
   for (node <- nodeList) {
@@ -183,7 +183,7 @@ class Matcher (database: Database, nodeList: List[Feature]) {
 }
 
 
-class Database () {
+class PathDatabase () {
   def pIndexHist (pathLabels: Array[Double], minProb: Double) : Double = {
     1.0
   }

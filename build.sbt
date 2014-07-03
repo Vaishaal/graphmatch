@@ -26,9 +26,9 @@ scalaVersion := "2.10.3"
 
 resolvers += "neo4j-public-repository" at "http://m2.neo4j.org/content/groups/everything/"
 
-resolvers += "sonatype-snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
-
 resolvers += Resolver.sonatypeRepo("public")
+
+resolvers += Resolver.sonatypeRepo("snapshots")
 
 libraryDependencies ++= Seq(
   "org.neo4j" % "neo4j" % "1.9.4",
@@ -37,8 +37,13 @@ libraryDependencies ++= Seq(
   "org.neo4j" % "neo4j-rest-graphdb" % "1.9.3-SNAPSHOT",
   "eu.fakod" % "neo4j-scala_2.10" % "0.3.1-SNAPSHOT",
   "io.argonaut" %% "argonaut" % "6.1-SNAPSHOT" changing(),
-  "com.github.scopt" %% "scopt" % "3.2.0"
-  )
+  "com.typesafe.slick" %% "slick" % "2.0.2",
+  "org.json4s" %% "json4s-native" % "3.2.9",
+  "org.json4s" %% "json4s-jackson" % "3.2.9",
+  "com.github.scopt" %% "scopt" % "3.2.0")
 
+libraryDependencies += "org.mongodb" %% "casbah" % "2.7.2"
+
+libraryDependencies += "com.fasterxml.jackson.module" % "jackson-module-scala" % "2.0.2"
 
 
