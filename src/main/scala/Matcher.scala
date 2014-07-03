@@ -67,7 +67,6 @@ object Matcher {
 
     // Use greedy set cover to compute the best paths decomposition.
     val coveringPaths = matcher.coverQuery(paths, costs)
-    println(coveringPaths.length)
 
     // Compute node level statistics and get candidate nodes.
     val candidateNodes = matcher.getCandidateNodes()
@@ -89,17 +88,8 @@ class Matcher (nodeList: List[Feature]) {
   private def computeCost (paths: List[List[Feature]], minProb: Double) : List[Double] = {
     val costs = ListBuffer[Double]()
     for ((path, i) <- paths.view.zipWithIndex) {
-      //costs += this.pIndexHist(path, minProb)/(this.degree(path)*this.density(path))
-      costs += (20.0 - 1.2*path.length)/(this.degree(path)*this.density(path))
-      if (path.length > 50) {
-        println(path.length)
-        println("pind: " + this.pIndexHist(path, minProb))
-        println("degree: " + this.degree(path))
-        println("density: " + this.density(path))
-        println("----")
-      }
+      costs += this.pIndexHist(path, minProb)/(this.degree(path)*this.density(path))
     }
-    //println(costs)
     costs.toList
   }
 
@@ -232,28 +222,7 @@ class Matcher (nodeList: List[Feature]) {
     }
     result
   }
-/*
-  private def makeUndirected () : Unit = {
-    // Create a map that contains lists of nodes that point to a particular node.
-    // This function is currently moot because everything is immutable.
-    val reverseEdges = MMap[Int, ListBuffer[Int]]()
-    for ((key, node) <- this.nodes) {
-      for (edge <- node.edges.get) {
-        if (reverseEdges.contains(edge)) {
-          reverseEdges(edge) += key
-        } else {
-          reverseEdges(edge) = ListBuffer(key)
-        }
-      }
-    }
-    for ((key, node) <- this.nodes) {
-      for (edge <- reverseEdges(key)) {
-        if (node.edges.get.contains(edge)) {
-        }
-      }
-    }
-  }
-*/
+
 }
 
 
