@@ -68,7 +68,6 @@ object Matcher {
   def query(query:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
 
     val source = fromFile(query)
-    //TODO: Read in the attributes.
 
     val maxDepth = 20
 
