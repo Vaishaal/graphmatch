@@ -178,7 +178,7 @@ class Matcher (nodeList: List[Feature]) {
     var paths = ListBuffer[ListBuffer[Feature]]()
     if (depth < maxLength && current.edges.nonEmpty ) {
       visited(current.key) = true
-      for (edge <- current.edges.getOrElse(Nil)) {
+      for (edge <- current.edges.getOrElse(List[Int]())) {
         if (!visited(edge) && this.nodes(edge).nodeType != Matcher.ROAD) {
           paths ++= getPathsHelper(maxLength, this.nodes(edge), depth + 1, visited)
         }
@@ -198,7 +198,7 @@ class Matcher (nodeList: List[Feature]) {
   private def degree (path: List[Feature]) : Int = {
     var total = 0
     for (node <- path) {
-      total += node.edges.get.length
+      total += node.edges.map(_.length).getOrElse(0)
     }
     total - 2*(path.length - 1)
   }
@@ -207,7 +207,7 @@ class Matcher (nodeList: List[Feature]) {
     var internalEdges = 0
     //TODO: If the graph is undirected we'll have to divide this by 2.
     for (node <- path) {
-      for (edge <- node.edges.get) {
+      for (edge <- node.edges.getOrElse(List[Int]())) {
         if (path.contains(this.nodes(edge))) {
           internalEdges += 1
         }
