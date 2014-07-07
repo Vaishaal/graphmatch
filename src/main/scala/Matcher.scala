@@ -88,9 +88,11 @@ object Matcher {
     val coveringPaths = matcher.coverQuery(paths, costs)
 
 
+    // Use the union of all possible paths to get preliminary candidate nodes.
+    val prelimNodes = matcher.nodesByPath(coveringPaths)
 
     // Compute node level statistics and get candidate nodes.
-    val candidateNodes = matcher.getCandidateNodes()
+    val candidateNodes = matcher.getCandidateNodes(prelimNodes)
 
     // Compute path level statistics and get candidate paths.
     val candidatePaths = matcher.getCandidatePaths(candidateNodes, coveringPaths)
@@ -326,23 +328,34 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
    * Node and Path Level Pruning Methods *
    ***************************************/
 
-  private def getCandidateNodes() : List[Feature] = {
+  private def nodesByPath(coveringPaths: List[List[Feature]]) : List[Int] = {
+    // Returns the list of node IDs in the database that are in some
+    // path that corresponds to a set cover path.
+    List[Int]()
+  }
+
+  private def getCandidateNodes(prelim: List[Int]) : List[Int] = {
+    // Returns the list of node IDs in the database that are the
+    // remaining nodes from the node level pruning in the paper.
     for ((key, node) <- this.nodes) {
       for (neighbor <- node.edges.getOrElse(List[Int]())) {
         1.1
       }
     }
-    List[Feature]()
+    List[Int]()
   }
 
-  private def getCandidatePaths(candidateNodes: List[Feature], coveringPaths: List[List[Feature]]) : List[List[Feature]] = {
-    val prelim = pIndex(coveringPaths(1), alpha)
+  private def getCandidatePaths(candidateNodes: List[Int], coveringPaths: List[List[Feature]])
+    : Map[List[Feature], List[List[Int]]] = {
+    // Returns a map from the paths in the set cover to the list of paths (by node ID)
+    // in the database that correspond to the set cover paths, after path level pruning.
+    val prelim = pIndex(coveringPaths(1))
     var pass = true
 
     for (path <- prelim) {
       checkPath(path, candidateNodes)
     }
-    List[List[Feature]]()
+    Map[List[Feature], List[List[Int]]]()
   }
 
   private def checkPath(path: List[Feature], candidateNodes: List[Feature]) : Boolean = {
