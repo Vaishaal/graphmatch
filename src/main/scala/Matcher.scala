@@ -76,16 +76,18 @@ object Matcher {
 
     val nodes = Serialization.read[List[Feature]](lines)
 
-    val matcher = new Matcher(nodes)
+    val matcher = new Matcher(nodes, 0.5)
 
     // Decompose the query into all possible paths of a given length.
     val paths = matcher.getPaths(maxDepth)
 
     // Compute the costs of each path.
-    val costs = matcher.computeCost(paths, 0.5)
+    val costs = matcher.computeCost(paths)
 
     // Use greedy set cover to compute the best paths decomposition.
     val coveringPaths = matcher.coverQuery(paths, costs)
+
+
 
     // Compute node level statistics and get candidate nodes.
     val candidateNodes = matcher.getCandidateNodes()
@@ -98,7 +100,7 @@ object Matcher {
 
 }
 
-class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
+class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
   ShutdownHookThread {
     shutdown(ds)
   }
@@ -112,11 +114,12 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
   for (node <- nodeList) {
     nodes(node.key) = node
   }
+  val minProb = alpha // query threshold
 
-  private def computeCost (paths: List[List[Feature]], minProb: Double) : List[Double] = {
+  private def computeCost (paths: List[List[Feature]]) : List[Double] = {
     val costs = ListBuffer[Double]()
     for ((path, i) <- paths.view.zipWithIndex) {
-      costs += this.pIndexHist(path, minProb)/(this.degree(path)*this.density(path))
+      costs += this.pIndexHist(path)/(this.degree(path)*this.density(path))
     }
     costs.toList
   }
@@ -155,7 +158,7 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
     coveringPaths.toList
   }
 
-  private def pIndexHist(path: List[Feature], minProb: Double) : Int =
+  private def pIndexHist(path: List[Feature]) : Int =
   {
     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
     val db = MongoClient()("graphmatch")
@@ -185,13 +188,6 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
      implicit val formats = Serialization.formats(NoTypeHints)
      val parsedPaths = Serialization.read[List[List[Int]]](paths)
      parsedPaths
-  }
-  private def getCandidateNodes() : List[Feature] = {
-    List[Feature]()
-  }
-
-  private def getCandidatePaths(candidateNodes: List[Feature], coveringPaths: List[List[Feature]]) : List[List[Feature]] = {
-    List[List[Feature]]()
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {
@@ -307,6 +303,64 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
     }
   }
 */
+  /***********************
+   * Context Information *
+   ***********************/
+  // All of the below are w.r.t. N(v, sigma) the number of neighbors of
+  // v that have label sigma.
+  private def cardinality(node: Int, label: Feature) : Int = {
+    100
+  }
+
+  private def ppu(node: Int, label: Feature) : Double = {
+    // Only the edge probabilities.
+    1.0
+  }
+
+  private def fpu(node: Int, label: Feature) : Double = {
+    // Uses the probability of the feature as well.
+    1.0
+  }
+
+  /***************************************
+   * Node and Path Level Pruning Methods *
+   ***************************************/
+
+  private def getCandidateNodes() : List[Feature] = {
+    for ((key, node) <- this.nodes) {
+      for (neighbor <- node.edges.getOrElse(List[Int]())) {
+        1.1
+      }
+    }
+    List[Feature]()
+  }
+
+  private def getCandidatePaths(candidateNodes: List[Feature], coveringPaths: List[List[Feature]]) : List[List[Feature]] = {
+    val prelim = pIndex(coveringPaths(1), alpha)
+    var pass = true
+
+    for (path <- prelim) {
+      checkPath(path, candidateNodes)
+    }
+    List[List[Feature]]()
+  }
+
+  private def checkPath(path: List[Feature], candidateNodes: List[Feature]) : Boolean = {
+    if (candidateNodes.contains(path(0))) {
+      if (path.length == 1) {
+        true
+      } else {
+        checkPath(path.slice(1, path.length), candidateNodes)
+      }
+    } else {
+      false
+    }
+  }
+
+  private def pathPU(path: List[List[Feature]]) : Double = {
+    1.0
+  }
+
 }
 
 
