@@ -131,6 +131,16 @@ class Matcher (nodeList: List[Feature]) {
     } else {
       count
     }
+  private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] =
+  {
+     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::Nil))
+     val db = MongoClient()("graphmatch")
+     val col = db("paths")
+     val kJson = compact(render(key))
+     val o = MongoDBObject("_id" -> kJson)
+     val result = col.findOne(o)
+     val paths = result.map(_.getAs[List[List[Int]]]("paths")).flatten.getOrElse(Nil)
+     paths
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {
