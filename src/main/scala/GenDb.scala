@@ -90,7 +90,9 @@ implicit def f2f(f:Feature) = {
   }
 
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
-    ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) :: Nil
+    ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    Nil
 
     def neo4jStoreDir = "/tmp/test.db"
     val graph_json = scala.io.Source.fromFile("bg2.json").mkString
@@ -99,6 +101,7 @@ implicit def f2f(f:Feature) = {
     val N = 11
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
+    val heightIndex = getNodeIndex("heightIndex").get
 
     val (source, sink) =
       withTx {
@@ -126,6 +129,8 @@ implicit def f2f(f:Feature) = {
             (source, sink)
           }
     def processBuilding(v:Feature, n:Node) = {
+      /* TODO: Use monads here */
+      heightIndex += (n, "height", v.height.getOrElse(-1).toString)
       for (e:Int <- v.edges.get) {
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.get(e)
@@ -163,7 +168,8 @@ implicit def f2f(f:Feature) = {
     }
     // Apparentely asInstanceOf is bad practice in Scala but no known workaround
     // TODO: Implement implicits so this isn't so ugly
-    }).map(z => z.getProperty("nodeType").asInstanceOf[Int]::
+    }).map(z => z.asInstanceOf[Node].getId().asInstanceOf[Int]::
+                z.getProperty("nodeType").asInstanceOf[Int]::
                 z.getProperty("height").asInstanceOf[Int]::
                 z.getProperty("degree").asInstanceOf[Int]::
                 Nil).drop(1).dropRight(1).toList).toList
