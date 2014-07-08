@@ -37,7 +37,6 @@ import scala.collection.JavaConversions.{asScalaIterator=>_,_}
 import org.neo4j.graphdb.Traverser
 import org.neo4j.graphdb.Node
 import org.neo4j.graphalgo.GraphAlgoFactory
-import scala.language.implicitConversions
 import org.neo4j.graphdb._
 import org.neo4j.kernel.Traversal._
 import scala.language.implicitConversions
@@ -73,9 +72,6 @@ object Feature {
 }
 
 class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
-  ShutdownHookThread {
-    shutdown(ds)
-}
 
 implicit def f2f(f:Feature) = {
   f match {
@@ -200,5 +196,7 @@ implicit def f2f(f:Feature) = {
         val po = MongoDBObject("_id" -> kJson, "paths" -> p)
       }
     }
+
     println(col.count() + " unique paths entered in DB")
+    shutdown(ds)
 }
