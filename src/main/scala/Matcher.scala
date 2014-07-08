@@ -35,12 +35,27 @@ import scala.collection.mutable.Stack
 import scala.collection.mutable.Set
 import scala.collection.mutable.ListBuffer
 import scala.collection.immutable.Range
+import scala.collection.JavaConversions.{asScalaIterator=>_,_}
+import scala.language.implicitConversions
+import scala.io.Source.fromFile
+
 import com.mongodb.casbah.Imports._
+import sys.ShutdownHookThread
 import scala.io.Source.fromFile
 import argonaut._, Argonaut._
-import org.json4s.jackson.JsonMethods._
-import org.json4s.JsonDSL._
+
 import org.json4s._
+import org.json4s.native.JsonMethods._
+import org.json4s.native.Serialization
+
+import org.json4s.JsonDSL._
+
+import org.neo4j.graphdb.Traverser
+import org.neo4j.graphdb.Node
+import org.neo4j.graphalgo.GraphAlgoFactory
+import org.neo4j.graphdb._
+import org.neo4j.kernel.Traversal._
+import eu.fakod.neo4jscala._
 
 object Matcher {
   val BUILDING = 0
@@ -139,8 +154,10 @@ class Matcher (nodeList: List[Feature]) {
      val kJson = compact(render(key))
      val o = MongoDBObject("_id" -> kJson)
      val result = col.findOne(o)
-     val paths = result.map(_.getAs[List[List[Int]]]("paths")).flatten.getOrElse(Nil)
-     paths
+     val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
+     implicit val formats = Serialization.formats(NoTypeHints)
+     val parsedPaths = Serialization.read[List[List[Int]]](paths)
+     parsedPaths
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {

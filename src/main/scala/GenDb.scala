@@ -43,7 +43,7 @@ import scala.language.implicitConversions
 import sys.process._
 import java.io.File
 import com.mongodb.casbah.Imports._
-import org.json4s.jackson.JsonMethods._
+import org.json4s.native.JsonMethods._
 import org.json4s.JsonDSL._
 import org.json4s._
 
@@ -99,6 +99,9 @@ implicit def f2f(f:Feature) = {
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
     val heightIndex = getNodeIndex("heightIndex").get
+    val LABELSIZE = 3
+    val SINKKEY = -1
+    val SOURCEKEY = -2
 
     val (source, sink) =
       withTx {
@@ -108,9 +111,11 @@ implicit def f2f(f:Feature) = {
           source("nodeType") = -1
           source("height") = -1
           source("degree") = -1
+          source("key") = SOURCEKEY
           sink("nodeType") = -1
           sink("degree") = -1
           sink("height") = -1
+          sink("key") = SINKKEY
           val nodes = (for ((k, v) <- node_map) yield (k, createNode(f2f(v))))
           for ((k,v) <- node_map) nodeIndex += (nodes(k), "key", k.toString)
           for ((k,v) <- node_map) {
@@ -166,7 +171,7 @@ implicit def f2f(f:Feature) = {
     }
     // Apparentely asInstanceOf is bad practice in Scala but no known workaround
     // TODO: Implement implicits so this isn't so ugly
-    }).map(z => z.asInstanceOf[Node].getId().asInstanceOf[Int]::
+    }).map(z => z.getProperty("key").asInstanceOf[Int]::
                 z.getProperty("nodeType").asInstanceOf[Int]::
                 z.getProperty("height").asInstanceOf[Int]::
                 z.getProperty("degree").asInstanceOf[Int]::
@@ -193,7 +198,7 @@ implicit def f2f(f:Feature) = {
       val kJson = compact(render(k))
       val o = MongoDBObject("_id" -> kJson, "count" -> v)
       histogramCol.insert(o)
-      val po = MongoDBObject("_id" -> kJson, "paths" -> pathMap(k))
+      val po = MongoDBObject("_id" -> kJson, "paths" -> compact(render(pathMap(k))))
       pathCol.insert(po)
     }
 
