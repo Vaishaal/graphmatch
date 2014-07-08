@@ -180,23 +180,23 @@ implicit def f2f(f:Feature) = {
     val pathMap = new collection.mutable.HashMap[List[List[Int]], List[List[Int]]]
 
     val db = mongoClient("graphmatch")
-    val col = db("histogram")
+    val histogramCol = db("histogram")
+    val pathCol = db("paths")
     val LABELSIZE = 3
     for (p <- paths) {
-      val key = p.map(_.head::Nil)
-      val value = p.map(_.dropRight(LABELSIZE))
+      val key = p.map(_.tail)
+      val value = p.map(_.dropRight(LABELSIZE).head)
       map(key) = map.getOrElse(key,0) + 1
-      pathMap(key) = pathMap.getOrElse(key, Nil) ::: value
+      pathMap(key) = pathMap.getOrElse(key, Nil) ::: (value :: Nil)
     }
     for ((k,v) <- map) {
       val kJson = compact(render(k))
       val o = MongoDBObject("_id" -> kJson, "count" -> v)
-      col.insert(o)
-      for (p <- pathMap(k)) {
-        val po = MongoDBObject("_id" -> kJson, "paths" -> p)
-      }
+      histogramCol.insert(o)
+      val po = MongoDBObject("_id" -> kJson, "paths" -> pathMap(k))
+      pathCol.insert(po)
     }
 
-    println(col.count() + " unique paths entered in DB")
+    println(histogramCol.count() + " unique paths entered in DB")
     shutdown(ds)
 }
