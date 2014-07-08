@@ -65,6 +65,7 @@ object Matcher {
   val INTERSECTION = 1
   val ROAD = 2
   val MAX_PATH_LENGTH = 10
+
   def query(query:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
 
     val source = fromFile(query)
@@ -331,6 +332,11 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
   private def nodesByPath(coveringPaths: List[List[Feature]]) : List[Int] = {
     // Returns the list of node IDs in the database that are in some
     // path that corresponds to a set cover path.
+    val prelimNodes = Set[Int]()
+    for (path <- coveringPaths) {
+      fromDB = pIndex(path, this.minProb)
+      prelimNodes ++= fromDB
+    }
     List[Int]()
   }
 
@@ -349,16 +355,21 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
     : Map[List[Feature], List[List[Int]]] = {
     // Returns a map from the paths in the set cover to the list of paths (by node ID)
     // in the database that correspond to the set cover paths, after path level pruning.
-    val prelim = pIndex(coveringPaths(1))
-    var pass = true
-
-    for (path <- prelim) {
-      checkPath(path, candidateNodes)
+    val out = MMap[List[Feature], List[List[Int]]]()
+    for (setPath <- coveringPaths) {
+      val prelim = pIndex(setPath, this.minProb)
+      val passed = ListBuffer[List[Int]]()
+      for (path <- prelim) {
+        if (checkPath(path, candidateNodes)) {
+          passed += path
+        }
+      }
+      out += (setPath, passed)
     }
     Map[List[Feature], List[List[Int]]]()
   }
 
-  private def checkPath(path: List[Feature], candidateNodes: List[Feature]) : Boolean = {
+  private def checkPath(path: List[Int], candidateNodes: List[Int]) : Boolean = {
     if (candidateNodes.contains(path(0))) {
       if (path.length == 1) {
         true
@@ -370,7 +381,7 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
     }
   }
 
-  private def pathPU(path: List[List[Feature]]) : Double = {
+  private def pathPU(path: List[Int]) : Double = {
     1.0
   }
 
