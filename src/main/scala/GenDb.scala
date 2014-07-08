@@ -40,6 +40,7 @@ import org.neo4j.graphalgo.GraphAlgoFactory
 import scala.language.implicitConversions
 import org.neo4j.graphdb._
 import org.neo4j.kernel.Traversal._
+import scala.language.implicitConversions
 import sys.process._
 import java.io.File
 import com.mongodb.casbah.Imports._
@@ -145,7 +146,8 @@ implicit def f2f(f:Feature) = {
       }
     def processRoad(v:Feature, n:Node) = {}
     def processIntersection(v:Feature, n:Node) = {
-      degreeIndex += (n, "degree", v.degree.get.toString)
+      /* TODO: Use monads here */
+      degreeIndex += (n, "degree", v.degree.getOrElse(-1).toString)
       for (e:Int <- v.edges.get) {
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.get(e)
@@ -176,15 +178,27 @@ implicit def f2f(f:Feature) = {
     // Create a histogram of paths store in mongoDB
     val mongoClient = MongoClient()
     val map = new collection.mutable.HashMap[List[List[Int]],Int]
+
+    /* TODO: Change the value of this HM to a mutable collection */
+
+    val pathMap = new collection.mutable.HashMap[List[List[Int]], List[List[Int]]]
+
     val db = mongoClient("graphmatch")
     val col = db("histogram")
+    val LABELSIZE = 3
     for (p <- paths) {
-      map(p) = map.getOrElse(p,0) + 1
+      val key = p.map(_.head::Nil)
+      val value = p.map(_.dropRight(LABELSIZE))
+      map(key) = map.getOrElse(key,0) + 1
+      pathMap(key) = pathMap.getOrElse(key, Nil) ::: value
     }
     for ((k,v) <- map) {
       val kJson = compact(render(k))
       val o = MongoDBObject("_id" -> kJson, "count" -> v)
       col.insert(o)
+      for (p <- pathMap(k)) {
+        val po = MongoDBObject("_id" -> kJson, "paths" -> p)
+      }
     }
     println(col.count() + " unique paths entered in DB")
 }
