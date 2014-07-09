@@ -35,12 +35,28 @@ import scala.collection.mutable.Stack
 import scala.collection.mutable.Set
 import scala.collection.mutable.ListBuffer
 import scala.collection.immutable.Range
+import scala.collection.mutable.HashMap
+import scala.collection.JavaConversions.{asScalaIterator=>_,_}
+import scala.language.implicitConversions
+import scala.io.Source.fromFile
+
 import com.mongodb.casbah.Imports._
+import sys.ShutdownHookThread
 import scala.io.Source.fromFile
 import argonaut._, Argonaut._
-import org.json4s.jackson.JsonMethods._
-import org.json4s.JsonDSL._
+
 import org.json4s._
+import org.json4s.native.JsonMethods._
+import org.json4s.native.Serialization
+
+import org.json4s.JsonDSL._
+
+import org.neo4j.graphdb.Traverser
+import org.neo4j.graphdb.Node
+import org.neo4j.graphalgo.GraphAlgoFactory
+import org.neo4j.graphdb._
+import org.neo4j.kernel.Traversal._
+import eu.fakod.neo4jscala._
 
 object Matcher {
   val BUILDING = 0
@@ -76,7 +92,16 @@ object Matcher {
 
 }
 
-class Matcher (nodeList: List[Feature]) {
+class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
+  ShutdownHookThread {
+    shutdown(ds)
+  }
+
+  override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+ Nil
+  def neo4jStoreDir = "/tmp/test.db"
   val nodes = MMap[Int, Feature]()
   for (node <- nodeList) {
     nodes(node.key) = node
@@ -131,6 +156,20 @@ class Matcher (nodeList: List[Feature]) {
     } else {
       count
     }
+  }
+
+  private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] =
+  {
+     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::Nil))
+     val db = MongoClient()("graphmatch")
+     val col = db("paths")
+     val kJson = compact(render(key))
+     val o = MongoDBObject("_id" -> kJson)
+     val result = col.findOne(o)
+     val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
+     implicit val formats = Serialization.formats(NoTypeHints)
+     val parsedPaths = Serialization.read[List[List[Int]]](paths)
+     parsedPaths
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {
@@ -193,6 +232,30 @@ class Matcher (nodeList: List[Feature]) {
       result = 1.0
     }
     result
+  }
+
+  private def getNodeNeighborInfo(nodeId: Int) : HashMap[List[Int],Int] = {
+    val neighborMap = new HashMap[List[Int],Int]
+    val nodeIndex = getNodeIndex("keyIndex").get
+    val obj = nodeIndex.get("key", nodeId)
+    val node = obj.getSingle()
+    val neighbors =
+      node.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "NEXT_TO" ->- "CONNECTS" ->- "")
+    {
+      case(_, tp) => tp.depth >= 1
+    }
+    {
+    ALL_BUT_START_NODE
+    }.toList
+    val neighborProps =
+        neighbors.map(x => x.nodeType::
+                           x.height::
+                           x.degree::
+                         Nil)
+    for (n <- neighborProps) {
+      neighborMap(n) = neighborMap.getOrElse(n, 0) + 1
+    }
+    neighborMap
   }
 }
 
