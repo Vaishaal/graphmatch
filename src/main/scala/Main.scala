@@ -34,6 +34,12 @@ import scopt._
 import sys.process._
 import com.mongodb.casbah.Imports._
 
+import org.json4s._
+import org.json4s.native.JsonMethods._
+import org.json4s.native.Serialization
+
+import scala.language.implicitConversions
+
 case class Config(gen: Boolean = false,
                   reset: Boolean = false,
                   query: String = "",
@@ -73,4 +79,22 @@ parser.parse(args, Config()) map {
                             }
             Matcher.query(config.query)
   }
+}
+
+object Implicits {
+
+implicit def f2f(f:Feature) = {
+  f match {
+    case Feature(t,k,x,y,h,l,d,rc,e) => FeatureDefaults(t,
+      k,
+      x.getOrElse(0),
+      y.getOrElse(0),
+      h.getOrElse(-1),
+      l.getOrElse(-1),
+      rc.getOrElse(-1),
+      d.getOrElse(-1))
+  }
+  }
+
+  implicit val formats = Serialization.formats(NoTypeHints)
 }

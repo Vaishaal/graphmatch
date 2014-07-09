@@ -29,6 +29,7 @@ provided that the following conditions are met:
  */
 
 package com.finder.graphmatch
+import Implicits._
 import scala.util.parsing.json._
 import eu.fakod.neo4jscala._
 import sys.ShutdownHookThread
@@ -71,18 +72,6 @@ case class FeatureDefaults(nodeType:Int,
 
 class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
 
-implicit def f2f(f:Feature) = {
-  f match {
-    case Feature(t,k,x,y,h,l,d,rc,e) => FeatureDefaults(t,
-      k,
-      x.getOrElse(0),
-      y.getOrElse(0),
-      h.getOrElse(-1),
-      l.getOrElse(-1),
-      rc.getOrElse(-1),
-      d.getOrElse(-1))
-  }
-  }
 
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::

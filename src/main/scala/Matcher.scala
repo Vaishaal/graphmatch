@@ -29,6 +29,9 @@
 */
 
 package com.finder.graphmatch
+
+import Implicits._
+
 import scala.util.parsing.json._
 import scala.collection.mutable.{Map => MMap}
 import scala.collection.mutable.Stack
@@ -72,7 +75,6 @@ object Matcher {
     val lines = source.mkString
     source.close()
 
-    implicit val formats = Serialization.formats(NoTypeHints)
     val nodes = Serialization.read[List[Feature]](lines)
 
     val matcher = new Matcher(nodes)
