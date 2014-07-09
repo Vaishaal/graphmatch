@@ -43,7 +43,6 @@ import scala.io.Source.fromFile
 import com.mongodb.casbah.Imports._
 import sys.ShutdownHookThread
 import scala.io.Source.fromFile
-import argonaut._, Argonaut._
 
 import org.json4s._
 import org.json4s.native.JsonMethods._
@@ -72,7 +71,10 @@ object Matcher {
 
     val lines = source.mkString
     source.close()
-    val nodes = lines.decodeOption[List[Feature]].getOrElse(Nil)
+
+    implicit val formats = Serialization.formats(NoTypeHints)
+    val nodes = Serialization.read[List[Feature]](lines)
+
     val matcher = new Matcher(nodes)
 
     // Decompose the query into all possible paths of a given length.
@@ -248,7 +250,8 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
     ALL_BUT_START_NODE
     }.toList
     val neighborProps =
-        neighbors.map(x => x.nodeType::
+        neighbors.map(x =>
+                           x.nodeType::
                            x.height::
                            x.degree::
                          Nil)

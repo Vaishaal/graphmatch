@@ -32,7 +32,6 @@ package com.finder.graphmatch
 import scala.util.parsing.json._
 import eu.fakod.neo4jscala._
 import sys.ShutdownHookThread
-import argonaut._, Argonaut._
 import scala.collection.JavaConversions.{asScalaIterator=>_,_}
 import org.neo4j.graphdb.Traverser
 import org.neo4j.graphdb.Node
@@ -46,6 +45,9 @@ import com.mongodb.casbah.Imports._
 import org.json4s.native.JsonMethods._
 import org.json4s.JsonDSL._
 import org.json4s._
+import org.json4s.native.Serialization
+
+
 
 
 case class Feature(nodeType: Int,
@@ -64,12 +66,8 @@ case class FeatureDefaults(nodeType:Int,
   y:Double,
   height:Int,
   length:Int,
-  roadClass:Int, degree:Int)
-
-object Feature {
-  implicit def featureCodecJson: CodecJson[Feature] =
-    casecodec9(Feature.apply, Feature.unapply)("nodeType","key","x", "y","height","length","degree", "roadClass", "edges")
-}
+  roadClass:Int,
+  degree:Int)
 
 class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
 
@@ -93,7 +91,10 @@ implicit def f2f(f:Feature) = {
 
     def neo4jStoreDir = "/tmp/test.db"
     val graph_json = scala.io.Source.fromFile("bg2.json").mkString
-    val decode = graph_json.decodeOption[List[Feature]].getOrElse(Nil)
+
+    implicit val formats = Serialization.formats(NoTypeHints)
+    val decode = Serialization.read[List[Feature]](graph_json)
+
     val node_map = (for (p <- decode) yield (p.key, p)).toMap
     val N = 11
     val nodeIndex = getNodeIndex("keyIndex").get
@@ -187,7 +188,6 @@ implicit def f2f(f:Feature) = {
     val db = mongoClient("graphmatch")
     val histogramCol = db("histogram")
     val pathCol = db("paths")
-    val LABELSIZE = 3
     for (p <- paths) {
       val key = p.map(_.tail)
       val value = p.map(_.dropRight(LABELSIZE).head)

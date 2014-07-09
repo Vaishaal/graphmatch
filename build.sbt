@@ -36,10 +36,8 @@ libraryDependencies ++= Seq(
   "org.neo4j" % "neo4j-kernel" % "1.9.4",
   "org.neo4j" % "neo4j-rest-graphdb" % "1.9.3-SNAPSHOT",
   "eu.fakod" % "neo4j-scala_2.10" % "0.3.1-SNAPSHOT",
-  "io.argonaut" %% "argonaut" % "6.1-SNAPSHOT" changing(),
   "com.typesafe.slick" %% "slick" % "2.0.2",
   "org.json4s" %% "json4s-native" % "3.2.9",
-  "org.json4s" %% "json4s-jackson" % "3.2.9",
   "com.github.scopt" %% "scopt" % "3.2.0")
 
 libraryDependencies += "org.mongodb" %% "casbah" % "2.7.2"
