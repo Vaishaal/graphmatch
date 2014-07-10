@@ -110,6 +110,9 @@ class Matcher (nodeList: List[Feature], alpha: Double)
   }
   val DEFAULTCARDINALITY = 100
 
+  val db = MongoClient()("graphmatch")
+  val col = db("histogram")
+
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
@@ -166,8 +169,6 @@ class Matcher (nodeList: List[Feature], alpha: Double)
   private def pIndexHist(path: List[Feature]) : Int =
   {
     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
-    val db = MongoClient()("graphmatch")
-    val col = db("histogram")
     val kJson = compact(render(key))
     val o = MongoDBObject("_id" -> kJson)
     val result = col.findOne(o)
@@ -184,8 +185,6 @@ class Matcher (nodeList: List[Feature], alpha: Double)
   private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] =
   {
      val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
-     val db = MongoClient()("graphmatch")
-     val col = db("paths")
      val kJson = compact(render(key))
      val o = MongoDBObject("_id" -> kJson)
      val result = col.findOne(o)
@@ -215,7 +214,7 @@ class Matcher (nodeList: List[Feature], alpha: Double)
     if (depth < maxLength && current.edges.nonEmpty ) {
       visited(current.key) = true
       for (edge <- current.edges.getOrElse(List[Int]())) {
-        if (!visited(edge) && this.nodes(edge).nodeType != Matcher.ROAD) {
+        if (!visited(edge)) {
           paths ++= getPathsHelper(maxLength, this.nodes(edge), depth + 1, visited)
         }
       }
