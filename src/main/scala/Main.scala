@@ -43,28 +43,32 @@ import scala.language.implicitConversions
 case class Config(gen: Boolean = false,
                   reset: Boolean = false,
                   query: String = "",
-                  dbpath: String = "/tmp/test.db")
+                  dbpath: String = "/tmp/test.db",
+                  jsonpath: String = "bg.json"
+                  )
 object Main extends App {
 
 val parser = new scopt.OptionParser[Config]("graphmatch") {
   head("graphmatch","0.1")
   opt[Unit]('g', "gen")
   .action { (_, c) =>  c.copy(gen = true)}
-  .text("Generates a neo4j database using bg.json located in .")
+  .text("Generates a neo4j and mongodb database using bg.json specified by db_json, WARNING: This will error if a db already exists")
 
   opt[Unit]('r', "reset")
   .action { (_, c) =>  c.copy(reset = true)}
-  .text("Deletes existing neo4j database")
+  .text("Deletes existing neo4j and mongodb database")
 
   opt[String]('q', "query")
   .action { (x, c) => c.copy(query = x)}
-  .text("Required: Query location")
-  .required()
+  .text("Query location")
 
   opt[String]('d', "dbpath")
   .action { (x, c) =>  c.copy(dbpath = x)}
   .text("Location of neo4j database ")
 
+  opt[String]("db_json")
+  .action { (x, c) =>  c.copy(dbpath = x)}
+  .text("Location of json to generate neo4j and mongodb database, by default looks for bg.json in cwd ")
 
 }
 
@@ -74,10 +78,10 @@ parser.parse(args, Config()) map {
                                ("rm -rf " + config.dbpath).!!
                                MongoClient()("graphmatch").dropDatabase()
                               }
-            if (config.gen) { new GenDb
+            if (config.gen) { new GenDb(config.dbpath, config.jsonpath)
                               println("Data base successfully generated")
                             }
-            Matcher.query(config.query)
+            if (config.query != "") Matcher.query(config.query)
   }
 }
 

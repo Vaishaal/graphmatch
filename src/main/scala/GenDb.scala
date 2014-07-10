@@ -70,7 +70,7 @@ case class FeatureDefaults(nodeType:Int,
   roadClass:Int,
   degree:Int)
 
-class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
+class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
 
 
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
@@ -78,8 +78,8 @@ class GenDb extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with 
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     Nil
 
-    def neo4jStoreDir = "/tmp/test.db"
-    val graph_json = scala.io.Source.fromFile("bg2.json").mkString
+    def neo4jStoreDir = db_path
+    val graph_json = scala.io.Source.fromFile(json_path).mkString
 
     implicit val formats = Serialization.formats(NoTypeHints)
     val decode = Serialization.read[List[Feature]](graph_json)
