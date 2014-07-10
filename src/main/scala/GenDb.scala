@@ -76,6 +76,7 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("roadClassIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     Nil
 
     def neo4jStoreDir = db_path
@@ -89,6 +90,7 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
     val heightIndex = getNodeIndex("heightIndex").get
+    val roadClassIndex = getNodeIndex("roadClassIndex").get
     val LABELSIZE = 3
     val SINKKEY = -1
     val SOURCEKEY = -2
@@ -101,10 +103,12 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
           source("nodeType") = -1
           source("height") = -1
           source("degree") = -1
+          source("roadClass") = -1
           source("key") = SOURCEKEY
           sink("nodeType") = -1
           sink("degree") = -1
           sink("height") = -1
+          sink("roadClass") = -1
           sink("key") = SINKKEY
           val nodes = (for ((k, v) <- node_map) yield (k, createNode(f2f(v))))
           for ((k,v) <- node_map) nodeIndex += (nodes(k), "key", k.toString)
@@ -135,7 +139,9 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
           }
         }
       }
-    def processRoad(v:Feature, n:Node) = {}
+    def processRoad(v:Feature, n:Node) = {
+      roadClassIndex += (n, "roadClass", v.roadClass.getOrElse(-1).toString)
+    }
     def processIntersection(v:Feature, n:Node) = {
       /* TODO: Use monads here */
       degreeIndex += (n, "degree", v.degree.getOrElse(-1).toString)
@@ -165,6 +171,7 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
                 z.getProperty("nodeType").asInstanceOf[Int]::
                 z.getProperty("height").asInstanceOf[Int]::
                 z.getProperty("degree").asInstanceOf[Int]::
+                z.getProperty("roadClass").asInstanceOf[Int]::
                 Nil).drop(1).dropRight(1).toList).toList
     // Create a histogram of paths store in mongoDB
     val mongoClient = MongoClient()

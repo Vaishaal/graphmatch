@@ -147,7 +147,7 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
 
   private def pIndexHist(path: List[Feature], minProb: Double) : Int =
   {
-    val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::Nil))
+    val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
     val db = MongoClient()("graphmatch")
     val col = db("histogram")
     val kJson = compact(render(key))
@@ -155,6 +155,7 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
     val result = col.findOne(o)
     /* TODO: DO NOT USE asInstanceOf here */
     val count = result.map(x => x.getAs[Int]("count")).getOrElse(Some(0)).getOrElse(0)
+    if (count == 1) { println(getNodeNeighborInfo(pIndex(path, minProb)(0)(0)))}
     if (count == 0) {
       Int.MaxValue
     } else {
@@ -164,7 +165,7 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
 
   private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] =
   {
-     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::Nil))
+     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
      val db = MongoClient()("graphmatch")
      val col = db("paths")
      val kJson = compact(render(key))
@@ -256,6 +257,7 @@ class Matcher (nodeList: List[Feature]) extends Neo4jWrapper with EmbeddedGraphD
                            x.nodeType::
                            x.height::
                            x.degree::
+                           x.roadClass::
                          Nil)
     for (n <- neighborProps) {
       neighborMap(n) = neighborMap.getOrElse(n, 0) + 1
