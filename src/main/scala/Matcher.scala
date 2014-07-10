@@ -258,53 +258,6 @@ class Matcher (nodeList: List[Feature], alpha: Double)
     result
   }
 
-  private def getNodeNeighborInfo(nodeId: Int) : HashMap[List[Int],Int] = {
-    val neighborMap = new HashMap[List[Int],Int]
-    val nodeIndex = getNodeIndex("keyIndex").get
-    val obj = nodeIndex.get("key", nodeId)
-    val node = obj.getSingle()
-    val neighbors =
-      node.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "NEXT_TO" ->- "CONNECTS" ->- "")
-    {
-      case(_, tp) => tp.depth >= 1
-    }
-    {
-    ALL_BUT_START_NODE
-    }.toList
-    val neighborProps =
-        neighbors.map(x =>
-                           x.nodeType::
-                           x.height::
-                           x.degree::
-                           x.roadClass::
-                         Nil)
-    for (n <- neighborProps) {
-      neighborMap(n) = neighborMap.getOrElse(n, 0) + 1
-    }
-    neighborMap
-  }
-/*
-  private def makeUndirected () : Unit = {
-    // Create a map that contains lists of nodes that point to a particular node.
-    // This function is currently moot because everything is immutable.
-    val reverseEdges = MMap[Int, ListBuffer[Int]]()
-    for ((key, node) <- this.nodes) {
-      for (edge <- node.edges.get) {
-        if (reverseEdges.contains(edge)) {
-          reverseEdges(edge) += key
-        } else {
-          reverseEdges(edge) = ListBuffer(key)
-        }
-      }
-    }
-    for ((key, node) <- this.nodes) {
-      for (edge <- reverseEdges(key)) {
-        if (node.edges.get.contains(edge)) {
-        }
-      }
-    }
-  }
-*/
   /***********************
    * Context Information *
    ***********************/
@@ -334,20 +287,48 @@ class Matcher (nodeList: List[Feature], alpha: Double)
     val prelimNodes = Set[Int]()
     for (path <- coveringPaths) {
       val fromDB = pIndex(path, this.minProb)
-      //prelimNodes ++= fromDB
+      for (prelimPath <- fromDB) {
+        prelimNodes ++= prelimPath
+      }
     }
-    List[Int]()
+    prelimNodes.toList
   }
 
   private def getCandidateNodes(prelim: List[Int]) : List[Int] = {
     // Returns the list of node IDs in the database that are the
     // remaining nodes from the node level pruning in the paper.
-    for ((key, node) <- this.nodes) {
-      for (neighbor <- node.edges.getOrElse(List[Int]())) {
-        1.1
-      }
+    for (node <- prelim) {
+      println(node)
+      val neighbors = this.getNodeNeighborInfo(node)
+      println(neighbors)
     }
     List[Int]()
+  }
+
+  private def getNodeNeighborInfo(nodeId: Int) : HashMap[List[Int],Int] = {
+    val neighborMap = new HashMap[List[Int],Int]
+    val nodeIndex = getNodeIndex("keyIndex").get
+    val obj = nodeIndex.get("key", nodeId)
+    val node = obj.getSingle()
+    val neighbors =
+      node.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "NEXT_TO" ->- "CONNECTS" ->- "")
+    {
+      case(_, tp) => tp.depth >= 1
+    }
+    {
+    ALL_BUT_START_NODE
+    }.toList
+    val neighborProps =
+        neighbors.map(x =>
+                           x.nodeType::
+                           x.height::
+                           x.degree::
+                           x.roadClass::
+                         Nil)
+    for (n <- neighborProps) {
+      neighborMap(n) = neighborMap.getOrElse(n, 0) + 1
+    }
+    neighborMap
   }
 
   private def getCandidatePaths(candidateNodes: List[Int], coveringPaths: List[List[Feature]])
