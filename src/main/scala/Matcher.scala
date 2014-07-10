@@ -103,10 +103,12 @@ object Matcher {
 
 }
 
-class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
+class Matcher (nodeList: List[Feature], alpha: Double)
+  extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
   ShutdownHookThread {
     shutdown(ds)
   }
+  val DEFAULTCARDINALITY = 100
 
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
@@ -310,7 +312,7 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
   // All of the below are w.r.t. N(v, sigma) the number of neighbors of
   // v that have label sigma.
   private def cardinality(node: Int, label: Feature) : Int = {
-    100
+    DEFAULTCARDINALITY
   }
 
   private def ppu(node: Int, label: Feature) : Double = {
@@ -332,8 +334,8 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
     // path that corresponds to a set cover path.
     val prelimNodes = Set[Int]()
     for (path <- coveringPaths) {
-      fromDB = pIndex(path, this.minProb)
-      prelimNodes ++= fromDB
+      val fromDB = pIndex(path, this.minProb)
+      //prelimNodes ++= fromDB
     }
     List[Int]()
   }
@@ -362,7 +364,7 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
           passed += path
         }
       }
-      out += (setPath, passed)
+      //out += (setPath, passed)
     }
     Map[List[Feature], List[List[Int]]]()
   }
