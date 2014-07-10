@@ -138,24 +138,24 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
       (x: (List[Feature], Double), y: (List[Feature], Double)) => x._2 > y._2)
     val pathsIter = sortedPaths.toIterator
     val coveringPaths = ListBuffer[List[Feature]]()
-    val covered = Set[Int]()
-    var target = this.nodes.keySet
-    for ((key, node) <- this.nodes) {
-      if (node.nodeType == Matcher.ROAD) {
-        target -= key
-      }
-    }
+    val covered = Set[Set[Int]]()
+    var target = this.nodes.keySet.map(x => (for (e <- this.nodes(x).edges.getOrElse(Nil))
+      yield Set[Int](this.nodes(x).key, e)).toSet).foldLeft(covered.empty)((x,y) => x.union(y))
     while (covered != target && pathsIter.hasNext) {
       val nextPath = pathsIter.next
       var include = false
-      for (node <- nextPath._1) {
-        if (!covered.contains(node.key)) {
+      var prev = nextPath._1.head.key
+      for (node <- nextPath._1.tail) {
+        val curr = node.key
+        if (!covered.contains(Set[Int](prev, curr))) {
           include = true
         }
+        prev = curr
       }
       if (include) {
         coveringPaths += nextPath._1
-        covered ++= (for (node <- nextPath._1) yield node.key)
+        val nodes = nextPath._1.map(_.key)
+        covered ++= (nodes.drop(1),nodes.dropRight(1)).zipped.toList.map(x => Set[Int](x._1,x._2))
       }
     }
     coveringPaths.toList
@@ -198,9 +198,7 @@ class Matcher (nodeList: List[Feature], alpha: Double) extends Neo4jWrapper with
     val visited = MMap[Int, Boolean]().withDefaultValue(false)
     val paths = ListBuffer[ListBuffer[Feature]]()
     for ((key, node) <- this.nodes) {
-      if (node.nodeType != Matcher.ROAD) {
-        paths ++= getPathsHelper(maxLength, node, 0, visited)
-      }
+      paths ++= getPathsHelper(maxLength, node, 0, visited)
     }
     val output = ListBuffer[List[Feature]]()
     for (path <- paths) {
