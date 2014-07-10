@@ -111,8 +111,8 @@ class Matcher (nodeList: List[Feature], alpha: Double)
   val DEFAULTCARDINALITY = 100
 
   val db = MongoClient()("graphmatch")
-  val col = db("histogram")
-
+  val hist_col = db("histogram")
+  val path_col = db("paths")
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
@@ -171,7 +171,7 @@ class Matcher (nodeList: List[Feature], alpha: Double)
     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
     val kJson = compact(render(key))
     val o = MongoDBObject("_id" -> kJson)
-    val result = col.findOne(o)
+    val result = hist_col.findOne(o)
     /* TODO: DO NOT USE asInstanceOf here */
     val count = result.map(x => x.getAs[Int]("count")).getOrElse(Some(0)).getOrElse(0)
     if (count == 1) { println(getNodeNeighborInfo(pIndex(path, minProb)(0)(0)))}
@@ -187,7 +187,8 @@ class Matcher (nodeList: List[Feature], alpha: Double)
      val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
      val kJson = compact(render(key))
      val o = MongoDBObject("_id" -> kJson)
-     val result = col.findOne(o)
+     val result = path_col.findOne(o)
+     println(result)
      val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
      implicit val formats = Serialization.formats(NoTypeHints)
      val parsedPaths = Serialization.read[List[List[Int]]](paths)
