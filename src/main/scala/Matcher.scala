@@ -359,17 +359,23 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     // Returns a map from the paths in the set cover to the list of paths (by node ID)
     // in the database that correspond to the set cover paths, after path level pruning.
     val out = MMap[List[Feature], List[List[Int]]]()
+  //  var before = 0
+ //   var after = 0
     for (setPath <- coveringPaths) {
       val prelim = pIndex(setPath, this.minProb)
+    //  before += prelim.length
       val passed = ListBuffer[List[Int]]()
       for (path <- prelim) {
         if (checkPath(path, candidateNodes)) {
           passed += path
         }
       }
-      //out += (setPath, passed)
+   //   after += passed.length
+      out(setPath) = passed.toList
     }
-    Map[List[Feature], List[List[Int]]]()
+  //  println(before)
+  //  println(after)
+    out.toMap
   }
 
   private def checkPath(path: List[Int], candidateNodes: List[Int]) : Boolean = {
