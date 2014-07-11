@@ -66,7 +66,7 @@ object Matcher {
   val ROAD = 2
   val MAX_PATH_LENGTH = 10
 
-  def query(query:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
+  def query(query:String, dbPath:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
 
     val source = fromFile(query)
 
@@ -77,7 +77,7 @@ object Matcher {
 
     val nodes = Serialization.read[List[Feature]](lines)
 
-    val matcher = new Matcher(nodes, 0.5)
+    val matcher = new Matcher(nodes, 0.5, dbPath)
 
     // Decompose the query into all possible paths of a given length.
     val paths = matcher.getPaths(maxDepth)
@@ -103,7 +103,7 @@ object Matcher {
 
 }
 
-class Matcher (nodeList: List[Feature], alpha: Double)
+class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
   ShutdownHookThread {
     shutdown(ds)
@@ -117,7 +117,7 @@ class Matcher (nodeList: List[Feature], alpha: Double)
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
  Nil
-  def neo4jStoreDir = "/tmp/test.db"
+  def neo4jStoreDir = dbPath
   val nodes = MMap[Int, Feature]()
   for (node <- nodeList) {
     nodes(node.key) = node
