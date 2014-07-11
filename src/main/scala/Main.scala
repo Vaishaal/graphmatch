@@ -81,7 +81,7 @@ parser.parse(args, Config()) map {
             if (config.gen) { new GenDb(config.dbpath, config.jsonpath)
                               println("Data base successfully generated")
                             }
-            if (config.query != "") Matcher.query(config.query)
+            if (config.query != "") Matcher.query(config.query, config.dbpath)
   }
 }
 
