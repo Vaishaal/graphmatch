@@ -184,17 +184,15 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     }
   }
 
-  private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] =
-  {
-     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
-     val kJson = compact(render(key))
-     val o = MongoDBObject("_id" -> kJson)
-     val result = path_col.findOne(o)
-     println(result)
-     val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
-     implicit val formats = Serialization.formats(NoTypeHints)
-     val parsedPaths = Serialization.read[List[List[Int]]](paths)
-     parsedPaths
+  private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] = {
+    val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
+    val kJson = compact(render(key))
+    val o = MongoDBObject("_id" -> kJson)
+    val result = path_col.findOne(o)
+    val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
+    implicit val formats = Serialization.formats(NoTypeHints)
+    val parsedPaths = Serialization.read[List[List[Int]]](paths)
+    parsedPaths
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {
@@ -284,26 +282,36 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
    * Node and Path Level Pruning Methods *
    ***************************************/
 
-  private def nodesByPath(coveringPaths: List[List[Feature]]) : List[Int] = {
+  private def nodesByPath(coveringPaths: List[List[Feature]]) : MMap[Feature, ListBuffer[Int]] = {
     // Returns the list of node IDs in the database that are in some
     // path that corresponds to a set cover path.
-    val prelimNodes = Set[Int]()
+    val prelimNodes = MMap[Feature, ListBuffer[Int]]()
     for (path <- coveringPaths) {
       val fromDB = pIndex(path, this.minProb)
       for (prelimPath <- fromDB) {
-        prelimNodes ++= prelimPath
+        for (i <- Range(0, prelimPath.length)) {
+          if (prelimNodes.contains(path(i))) {
+            prelimNodes(path(i)) += prelimPath(i)
+          } else {
+            prelimNodes(path(i)) = ListBuffer[Int](prelimPath(i))
+          }
+        }
       }
     }
-    prelimNodes.toList
+    prelimNodes
   }
 
-  private def getCandidateNodes(prelim: List[Int]) : List[Int] = {
+  private def getCandidateNodes(prelim: MMap[Feature, ListBuffer[Int]]) : List[Int] = {
     // Returns the list of node IDs in the database that are the
     // remaining nodes from the node level pruning in the paper.
-    for (node <- prelim) {
-      println(node)
-      val neighbors = this.getNodeNeighborInfo(node)
-      println(neighbors)
+    val NODETYPE = 0
+    val HEIGHT = 1
+    val DEGREE = 2
+    val ROADCLASS = 3
+    for ((queryNode, candidates) <- prelim) {
+      for (candidate <- candidates) {
+        val neighborStats = this.getNodeNeighborInfo(candidate)
+      }
     }
     List[Int]()
   }
