@@ -304,16 +304,28 @@ class Matcher (nodeList: List[Feature], alpha: Double)
   private def getCandidateNodes(prelim: MMap[Feature, ListBuffer[Int]]) : List[Int] = {
     // Returns the list of node IDs in the database that are the
     // remaining nodes from the node level pruning in the paper.
-    val NODETYPE = 0
-    val HEIGHT = 1
-    val DEGREE = 2
-    val ROADCLASS = 3
+    val output = ListBuffer[Int]()
     for ((queryNode, candidates) <- prelim) {
+      val queryNeighborStats = MMap[List[Int], Int]().withDefaultValue(0)
+      for (queryNeighbor <- queryNode.edges.getOrElse(List[Int]())) {
+        val qNN = this.nodes(queryNeighbor) // query neighbor node
+        val key = List[Int](qNN.nodeType, qNN.height.getOrElse(-1), qNN.degree.getOrElse(-1), qNN.roadClass.getOrElse(-1))
+        queryNeighborStats(key) += 1
+      }
       for (candidate <- candidates) {
         val neighborStats = this.getNodeNeighborInfo(candidate)
+        var passed = true
+        for ((neighborLabel, count) <- neighborStats) {
+          if (neighborStats(neighborLabel) < queryNeighborStats(neighborLabel)){
+            passed = false
+          }
+        }
+        if (passed) {
+          output += candidate
+        }
       }
     }
-    List[Int]()
+    output.toList
   }
 
   private def getNodeNeighborInfo(nodeId: Int) : HashMap[List[Int],Int] = {
