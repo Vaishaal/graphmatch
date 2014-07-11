@@ -184,17 +184,15 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     }
   }
 
-  private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] =
-  {
-     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
-     val kJson = compact(render(key))
-     val o = MongoDBObject("_id" -> kJson)
-     val result = path_col.findOne(o)
-     println(result)
-     val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
-     implicit val formats = Serialization.formats(NoTypeHints)
-     val parsedPaths = Serialization.read[List[List[Int]]](paths)
-     parsedPaths
+  private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] = {
+    val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
+    val kJson = compact(render(key))
+    val o = MongoDBObject("_id" -> kJson)
+    val result = path_col.findOne(o)
+    val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
+    implicit val formats = Serialization.formats(NoTypeHints)
+    val parsedPaths = Serialization.read[List[List[Int]]](paths)
+    parsedPaths
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {
@@ -261,6 +259,75 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     result
   }
 
+  /***********************
+   * Context Information *
+   ***********************/
+  // All of the below are w.r.t. N(v, sigma) the number of neighbors of
+  // v that have label sigma.
+  private def cardinality(node: Int, label: Feature) : Int = {
+    DEFAULTCARDINALITY
+  }
+
+  private def ppu(node: Int, label: Feature) : Double = {
+    // Only the edge probabilities.
+    1.0
+  }
+
+  private def fpu(node: Int, label: Feature) : Double = {
+    // Uses the probability of the feature as well.
+    1.0
+  }
+
+  /***************************************
+   * Node and Path Level Pruning Methods *
+   ***************************************/
+
+  private def nodesByPath(coveringPaths: List[List[Feature]]) : MMap[Feature, ListBuffer[Int]] = {
+    // Returns the list of node IDs in the database that are in some
+    // path that corresponds to a set cover path.
+    val prelimNodes = MMap[Feature, ListBuffer[Int]]()
+    for (path <- coveringPaths) {
+      val fromDB = pIndex(path, this.minProb)
+      for (prelimPath <- fromDB) {
+        for (i <- Range(0, prelimPath.length)) {
+          if (prelimNodes.contains(path(i))) {
+            prelimNodes(path(i)) += prelimPath(i)
+          } else {
+            prelimNodes(path(i)) = ListBuffer[Int](prelimPath(i))
+          }
+        }
+      }
+    }
+    prelimNodes
+  }
+
+  private def getCandidateNodes(prelim: MMap[Feature, ListBuffer[Int]]) : List[Int] = {
+    // Returns the list of node IDs in the database that are the
+    // remaining nodes from the node level pruning in the paper.
+    val output = ListBuffer[Int]()
+    for ((queryNode, candidates) <- prelim) {
+      val queryNeighborStats = MMap[List[Int], Int]().withDefaultValue(0)
+      for (queryNeighbor <- queryNode.edges.getOrElse(List[Int]())) {
+        val qNN = this.nodes(queryNeighbor) // query neighbor node
+        val key = List[Int](qNN.nodeType, qNN.height.getOrElse(-1), qNN.degree.getOrElse(-1), qNN.roadClass.getOrElse(-1))
+        queryNeighborStats(key) += 1
+      }
+      for (candidate <- candidates) {
+        val neighborStats = this.getNodeNeighborInfo(candidate)
+        var passed = true
+        for ((neighborLabel, count) <- neighborStats) {
+          if (neighborStats(neighborLabel) < queryNeighborStats(neighborLabel)){
+            passed = false
+          }
+        }
+        if (passed) {
+          output += candidate
+        }
+      }
+    }
+    output.toList
+  }
+
   private def getNodeNeighborInfo(nodeId: Int) : HashMap[List[Int],Int] = {
     val neighborMap = new HashMap[List[Int],Int]
     val nodeIndex = getNodeIndex("keyIndex").get
@@ -286,89 +353,29 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     }
     neighborMap
   }
-/*
-  private def makeUndirected () : Unit = {
-    // Create a map that contains lists of nodes that point to a particular node.
-    // This function is currently moot because everything is immutable.
-    val reverseEdges = MMap[Int, ListBuffer[Int]]()
-    for ((key, node) <- this.nodes) {
-      for (edge <- node.edges.get) {
-        if (reverseEdges.contains(edge)) {
-          reverseEdges(edge) += key
-        } else {
-          reverseEdges(edge) = ListBuffer(key)
-        }
-      }
-    }
-    for ((key, node) <- this.nodes) {
-      for (edge <- reverseEdges(key)) {
-        if (node.edges.get.contains(edge)) {
-        }
-      }
-    }
-  }
-*/
-  /***********************
-   * Context Information *
-   ***********************/
-  // All of the below are w.r.t. N(v, sigma) the number of neighbors of
-  // v that have label sigma.
-  private def cardinality(node: Int, label: Feature) : Int = {
-    DEFAULTCARDINALITY
-  }
-
-  private def ppu(node: Int, label: Feature) : Double = {
-    // Only the edge probabilities.
-    1.0
-  }
-
-  private def fpu(node: Int, label: Feature) : Double = {
-    // Uses the probability of the feature as well.
-    1.0
-  }
-
-  /***************************************
-   * Node and Path Level Pruning Methods *
-   ***************************************/
-
-  private def nodesByPath(coveringPaths: List[List[Feature]]) : List[Int] = {
-    // Returns the list of node IDs in the database that are in some
-    // path that corresponds to a set cover path.
-    val prelimNodes = Set[Int]()
-    for (path <- coveringPaths) {
-      val fromDB = pIndex(path, this.minProb)
-      //prelimNodes ++= fromDB
-    }
-    List[Int]()
-  }
-
-  private def getCandidateNodes(prelim: List[Int]) : List[Int] = {
-    // Returns the list of node IDs in the database that are the
-    // remaining nodes from the node level pruning in the paper.
-    for ((key, node) <- this.nodes) {
-      for (neighbor <- node.edges.getOrElse(List[Int]())) {
-        1.1
-      }
-    }
-    List[Int]()
-  }
 
   private def getCandidatePaths(candidateNodes: List[Int], coveringPaths: List[List[Feature]])
     : Map[List[Feature], List[List[Int]]] = {
     // Returns a map from the paths in the set cover to the list of paths (by node ID)
     // in the database that correspond to the set cover paths, after path level pruning.
     val out = MMap[List[Feature], List[List[Int]]]()
+  //  var before = 0
+ //   var after = 0
     for (setPath <- coveringPaths) {
       val prelim = pIndex(setPath, this.minProb)
+    //  before += prelim.length
       val passed = ListBuffer[List[Int]]()
       for (path <- prelim) {
         if (checkPath(path, candidateNodes)) {
           passed += path
         }
       }
-      //out += (setPath, passed)
+   //   after += passed.length
+      out(setPath) = passed.toList
     }
-    Map[List[Feature], List[List[Int]]]()
+  //  println(before)
+  //  println(after)
+    out.toMap
   }
 
   private def checkPath(path: List[Int], candidateNodes: List[Int]) : Boolean = {
