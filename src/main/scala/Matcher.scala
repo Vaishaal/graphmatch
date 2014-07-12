@@ -146,7 +146,11 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     val covered = Set[Set[Int]]()
     var target = this.nodes.keySet.map(x => (for (e <- this.nodes(x).edges.getOrElse(Nil))
       yield Set[Int](this.nodes(x).key, e)).toSet).foldLeft(covered.empty)((x,y) => x.union(y))
-      .filter(_.map(this.nodes(_).nodeType != Matcher.ROAD).reduce((x,y) => x && y))
+        .filter(x =>
+        !(x.map(this.nodes(_).nodeType).contains(Matcher.ROAD)
+        &&
+        x.map(this.nodes(_).nodeType).contains(Matcher.BUILDING))
+      )
 
     while (covered != target && pathsIter.hasNext) {
       val nextPath = pathsIter.next
@@ -212,10 +216,13 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   private def getPathsHelper (maxLength: Int, current: Feature, depth: Int, visited: MMap[Int, Boolean])
     : ListBuffer[ListBuffer[Feature]] = {
     var paths = ListBuffer[ListBuffer[Feature]]()
+    val badEdge = Set[Int](Matcher.ROAD, Matcher.BUILDING)
     if (depth < maxLength && current.edges.nonEmpty ) {
       visited(current.key) = true
       for (edge <- current.edges.getOrElse(Nil)) {
-        if (!visited(edge) && this.nodes(edge).nodeType != Matcher.ROAD) {
+        val edgeType = Set[Int](current.nodeType, this.nodes(edge).nodeType)
+        if (!visited(edge) && (edgeType != badEdge))
+        {
           paths ++= getPathsHelper(maxLength, this.nodes(edge), depth + 1, visited)
         }
       }

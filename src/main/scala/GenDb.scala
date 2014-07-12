@@ -158,7 +158,7 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
         }
       }
     // Find all paths
-    val expander = pathExpanderForTypes("NEXT_TO", Direction.OUTGOING)
+    val expander = pathExpanderForTypes("NEXT_TO", Direction.OUTGOING, "CONNECTS", Direction.BOTH)
     val finder = GraphAlgoFactory.allSimplePaths(expander, N);
     val paths:List[List[List[Int]]]  = finder.findAllPaths(source,sink).map(x => x.filter({
       y => y match {
