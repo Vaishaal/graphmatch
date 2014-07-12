@@ -237,6 +237,17 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     paths
   }
 
+  private def getJoinCandidates(coveringPaths: List[List[Feature]]): MMap[Int, List[(Int, Int)]] =  {
+    /* This function returns a map detailing which paths join with which other paths
+     * The returned map's key corresponds to an index INTO coveringPaths, a key only exists if a
+     * path joins with another path. The value corresponding to the key is a List of two-pules
+     * The first value in the two-pule is the index INTO the path in which a new path is joined,
+     * the second value in the two-pule is the index into coveringPaths, that denotes WHAT path is
+     * being joined. I know its a little hair but its the most concise way I could think of representing this
+     */
+
+    MMap[Int, List[(Int, Int)]]()
+  }
 
   private def degree (path: List[Feature]) : Int = {
     var total = 0
