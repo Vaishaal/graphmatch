@@ -158,8 +158,9 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
         }
       }
     // Find all paths
-    val expander = pathExpanderForTypes("NEXT_TO", Direction.OUTGOING, "CONNECTS", Direction.BOTH)
-    val finder = GraphAlgoFactory.allSimplePaths(expander, N);
+    val expander = pathExpanderForTypes("NEXT_TO", Direction.OUTGOING)
+    val finder = GraphAlgoFactory.allSimplePaths(expander, N)
+    val NODETYPE = 1
     val paths:List[List[List[Int]]]  = finder.findAllPaths(source,sink).map(x => x.filter({
       y => y match {
         case y:Node => true
@@ -173,6 +174,35 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
                 z.getProperty("degree").asInstanceOf[Int]::
                 z.getProperty("roadClass").asInstanceOf[Int]::
                 Nil).drop(1).dropRight(1).toList).toList
+    val pathNodes = paths.map(path => path.map(node => nodeIndex.get("key", node.head.toString).getSingle()))
+    /* TODO: Below is proper scala style to deal with closures, come back and
+       fix all closure usage to like this piece of art
+    */
+    val singleRoadPaths =
+    (pathNodes map { path =>
+      (path,
+      (path.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "ON") {
+        case _ => false
+        } {
+        case (node: FeatureDefaults, _) => node.nodeType == Matcher.ROAD
+        }).toList)
+    } filter {
+      pathR => pathR._2.size == 1
+    } map { pathR:(List[Node],List[FeatureDefaults]) =>
+      ((pathR._1 map { node:Node =>
+        node.getProperty("key").asInstanceOf[Int]::
+        node.getProperty("nodeType").asInstanceOf[Int]::
+        node.getProperty("height").asInstanceOf[Int]::
+        node.getProperty("degree").asInstanceOf[Int]::
+        node.getProperty("roadClass").asInstanceOf[Int]::
+        Nil
+      }).drop(1).dropRight(1).toList,
+       pathR._2.head.key)
+    }).toSet.toList
+
+    /* TODO: Find out why there are duplicates in the above list */
+
+
     // Create a histogram of paths store in mongoDB
     val mongoClient = MongoClient()
     val map = new collection.mutable.HashMap[List[List[Int]],Int]
@@ -180,21 +210,30 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
     /* TODO: Change the value of this HM to a mutable collection */
 
     val pathMap = new collection.mutable.HashMap[List[List[Int]], List[List[Int]]]
+    val roadMap = new collection.mutable.HashMap[List[Int], Int]
 
     val db = mongoClient("graphmatch")
     val histogramCol = db("histogram")
     val pathCol = db("paths")
-    for (p <- paths) {
-      val key = p.map(_.tail)
-      val value = p.map(_.dropRight(LABELSIZE).head)
+    val roadCol = db("roads")
+    for (p <- singleRoadPaths) {
+      val key = p._1.map(_.tail)
+      val value = p._1.map(_.dropRight(LABELSIZE).head)
       map(key) = map.getOrElse(key,0) + 1
       pathMap(key) = pathMap.getOrElse(key, Nil) ::: (value :: Nil)
+      roadMap(value) = p._2
     }
     for ((k,v) <- map) {
       val kJson = compact(render(k))
       val o = MongoDBObject("_id" -> kJson, "count" -> v)
       histogramCol.insert(o)
       val po = MongoDBObject("_id" -> kJson, "paths" -> compact(render(pathMap(k))))
+    /* TODO: Find out why there are duplicates in the below list */
+      val pathSet = pathMap(k).toSet
+      for (p <- pathSet) {
+        val ro = MongoDBObject("_id" -> compact(render(p)), "road" -> roadMap(p))
+        roadCol.insert(ro)
+      }
       pathCol.insert(po)
     }
 
