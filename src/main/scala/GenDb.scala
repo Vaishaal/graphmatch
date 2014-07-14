@@ -211,17 +211,20 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
 
     val pathMap = new collection.mutable.HashMap[List[List[Int]], List[List[Int]]]
     val roadMap = new collection.mutable.HashMap[List[Int], Int]
+    val rRoadMap = new HashMap[Int, Set[List[Feature]]] with MultiMap[Int, List[Feature]]
 
     val db = mongoClient("graphmatch")
     val histogramCol = db("histogram")
     val pathCol = db("paths")
     val roadCol = db("roads")
+    val rRoadCol = db("rRoads")
     for (p <- singleRoadPaths) {
       val key = p._1.map(_.tail)
       val value = p._1.map(_.dropRight(LABELSIZE).head)
       map(key) = map.getOrElse(key,0) + 1
       pathMap(key) = pathMap.getOrElse(key, Nil) ::: (value :: Nil)
       roadMap(value) = p._2
+      rRoadMap.addBinding(p._2,value)
     }
     for ((k,v) <- map) {
       val kJson = compact(render(k))
@@ -235,6 +238,10 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
         roadCol.insert(ro)
       }
       pathCol.insert(po)
+    }
+    for ((k,v) <- rRoadMap) {
+      val o = MongoDBObject("_id" -> k, "paths" -> compact(render(v.toList)))
+      rRoadCol.insert(o)
     }
 
     println(histogramCol.count() + " unique paths entered in DB")

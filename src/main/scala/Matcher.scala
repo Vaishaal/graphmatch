@@ -34,8 +34,10 @@ import Implicits._
 
 import scala.util.parsing.json._
 import scala.collection.mutable.{Map => MMap}
+import collection.mutable.{ HashMap, MultiMap, Set }
 import scala.collection.mutable.Stack
 import scala.collection.mutable.Set
+import org.neo4j.graphdb.Node
 import scala.collection.mutable.ListBuffer
 import scala.collection.immutable.Range
 import scala.collection.mutable.HashMap
@@ -87,8 +89,18 @@ object Matcher {
 
     // Use greedy set cover to compute the best paths decomposition.
     val coveringPaths = matcher.coverQuery(paths, costs)
+    val roadPaths =
+    coveringPaths map {path =>
+      (path map {node:Feature =>
+        (node.edges.getOrElse(Nil) filter{ edge:Int =>
+          matcher.nodes(edge).nodeType == Matcher.ROAD
+        }).head
+      }).toSet.toList.head
+    }
+    // Map from  path to road
+    val roadMap = (coveringPaths zip roadPaths).toMap
 
-
+    println(coveringPaths.map(matcher.pIndex(_,0.5).size))
     // Use the union of all possible paths to get preliminary candidate nodes.
     val prelimNodes = matcher.nodesByPath(coveringPaths)
 
@@ -97,6 +109,8 @@ object Matcher {
 
     // Compute path level statistics and get candidate paths.
     val candidatePaths = matcher.getCandidatePaths(candidateNodes, coveringPaths)
+    println(candidatePaths.keySet.map(candidatePaths(_).size).toList)
+
 
     // Build joint search space graph.
   }
@@ -113,6 +127,8 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   val db = MongoClient()("graphmatch")
   val hist_col = db("histogram")
   val path_col = db("paths")
+  val road_col = db("roads")
+  val r_road_col = db("rRoads")
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
@@ -146,11 +162,7 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     val covered = Set[Set[Int]]()
     var target = this.nodes.keySet.map(x => (for (e <- this.nodes(x).edges.getOrElse(Nil))
       yield Set[Int](this.nodes(x).key, e)).toSet).foldLeft(covered.empty)((x,y) => x.union(y))
-        .filter(x =>
-        !(x.map(this.nodes(_).nodeType).contains(Matcher.ROAD)
-        &&
-        x.map(this.nodes(_).nodeType).contains(Matcher.BUILDING))
-      )
+      .filter(_.map(this.nodes(_).nodeType != Matcher.ROAD).reduce((x,y) => x && y))
 
     while (covered != target && pathsIter.hasNext) {
       val nextPath = pathsIter.next
@@ -180,7 +192,6 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     val result = hist_col.findOne(o)
     /* TODO: DO NOT USE asInstanceOf here */
     val count = result.map(x => x.getAs[Int]("count")).getOrElse(Some(0)).getOrElse(0)
-    if (count == 1) { println(getNodeNeighborInfo(pIndex(path, minProb)(0)(0)))}
     if (count == 0) {
       Int.MaxValue
     } else {
@@ -188,15 +199,17 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     }
   }
 
-  private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] = {
-    val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
-    val kJson = compact(render(key))
-    val o = MongoDBObject("_id" -> kJson)
-    val result = path_col.findOne(o)
-    val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
-    implicit val formats = Serialization.formats(NoTypeHints)
-    val parsedPaths = Serialization.read[List[List[Int]]](paths)
-    parsedPaths
+  private def pIndex(path: List[Feature], minProb: Double) : List[List[Int]] =
+  {
+     val key = path.map(x => (x.nodeType::x.height.getOrElse(-1)::x.degree.getOrElse(-1)::x.roadClass.getOrElse(-1)::Nil))
+
+     val kJson = compact(render(key))
+     val o = MongoDBObject("_id" -> kJson)
+     val result = path_col.findOne(o)
+     val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
+     implicit val formats = Serialization.formats(NoTypeHints)
+     val parsedPaths = Serialization.read[List[List[Int]]](paths)
+     parsedPaths
   }
 
   private def getPaths (maxLength: Int) : List[List[Feature]] = {
@@ -216,13 +229,10 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   private def getPathsHelper (maxLength: Int, current: Feature, depth: Int, visited: MMap[Int, Boolean])
     : ListBuffer[ListBuffer[Feature]] = {
     var paths = ListBuffer[ListBuffer[Feature]]()
-    val badEdge = Set[Int](Matcher.ROAD, Matcher.BUILDING)
     if (depth < maxLength && current.edges.nonEmpty ) {
       visited(current.key) = true
       for (edge <- current.edges.getOrElse(Nil)) {
-        val edgeType = Set[Int](current.nodeType, this.nodes(edge).nodeType)
-        if (!visited(edge) && (edgeType != badEdge))
-        {
+        if (!visited(edge) && this.nodes(edge).nodeType != Matcher.ROAD) {
           paths ++= getPathsHelper(maxLength, this.nodes(edge), depth + 1, visited)
         }
       }
@@ -245,6 +255,19 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
      * the second value in the two-pule is the index into coveringPaths, that denotes WHAT path is
      * being joined. I know its a little hair but its the most concise way I could think of representing this
      */
+    val FORK_SIZE = 2
+    // First we create a map from each Feature to the set of paths it belongs in.
+    val pathMap = this.nodes.values.map((node => (node.key, coveringPaths.zipWithIndex
+      .filter(path => path._1.map(_.key).toSet.contains(node.key))
+      .map(path => path._2))))
+      .toMap
+      /*
+      coveringPaths.zipWithIndex.map(path => path._1
+        .map((node => (node.key, node.edges.getOrElse(Nil)))
+        .filter(node => node._2.size > 2)))
+        .filter(path => !path._1.isEmpty)
+        .map()
+        */
 
     MMap[Int, List[(Int, Int)]]()
   }
@@ -323,6 +346,7 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     // Returns the list of node IDs in the database that are the
     // remaining nodes from the node level pruning in the paper.
     val output = ListBuffer[Int]()
+    val ROADCLASS = 3
     for ((queryNode, candidates) <- prelim) {
       val queryNeighborStats = MMap[List[Int], Int]().withDefaultValue(0)
       for (queryNeighbor <- queryNode.edges.getOrElse(List[Int]())) {
@@ -349,25 +373,30 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   private def getNodeNeighborInfo(nodeId: Int) : HashMap[List[Int],Int] = {
     val neighborMap = new HashMap[List[Int],Int]
     val nodeIndex = getNodeIndex("keyIndex").get
+    val searchKey = 100
     val obj = nodeIndex.get("key", nodeId)
-    val node = obj.getSingle()
-    val neighbors =
-      node.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "NEXT_TO" ->- "CONNECTS" ->- "")
-    {
-      case(_, tp) => tp.depth >= 1
-    }
-    {
-    ALL_BUT_START_NODE
-    }.toList
-    val neighborProps =
-        neighbors.map(x =>
-                           x.nodeType::
-                           x.height::
-                           x.degree::
-                           x.roadClass::
-                         Nil)
-    for (n <- neighborProps) {
-      neighborMap(n) = neighborMap.getOrElse(n, 0) + 1
+    if (obj.size() != 0) {
+      val node = obj.getSingle()
+      val neighbors =
+        node.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "NEXT_TO" ->- "CONNECTS" ->- "ON")
+      {
+        case(_, tp) => tp.depth >= 1
+      }
+      {
+      ALL_BUT_START_NODE
+      }.toList
+      val neighborProps =
+          neighbors.map(x =>
+                             x.nodeType::
+                             x.height::
+                             x.degree::
+                             x.roadClass::
+                           Nil)
+      for (n <- neighborProps) {
+        neighborMap(n) = neighborMap.getOrElse(n, 0) + 1
+      }
+    } else {
+      assert(false, "Queried nodeId that does not exist!")
     }
     neighborMap
   }
@@ -407,6 +436,34 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
       false
     }
   }
+
+  private def reduceByStructure(candidatePaths: Map[List[Feature], List[List[Feature]]],
+                                roadMap: Map[List[Feature], Int]) {
+    // Map from road to paths
+    val rRoadMap = new HashMap[Int, Set[List[Feature]]] with MultiMap[Int, List[Feature]]
+    for ((k,v) <- roadMap) {
+      rRoadMap.addBinding(v,k)
+    }
+    val candidateQueryMap = (for ((k,v) <- candidatePaths; p <- v) yield (p, k)).toMap
+    val pathMap =
+    withTx {
+      implicit neo =>
+      val pathMap =
+      (for ((k,v) <- candidatePaths; p <- v) yield (p, createNode)).toMap
+      pathMap
+    }
+
+      for ((k,v) <- pathMap) {
+        val key = path.map(_.key)
+        val kJson = compact(render(key))
+        val o = MongoDBObject("_id" -> kJson)
+        val road = road_col.findOne(o).map(_.getAs[Int]("road")).getOrElse(-1)
+        val ro = MongoDBObject("_id" -> road)
+        val otherPaths = r_road_col.findOne(ro)(_.getAs[String]("paths")).flatten.getOrElse("")
+        val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
+        val otherNode = pathMap(p2)
+      }
+    }
 
   private def pathPU(path: List[Int]) : Double = {
     1.0
