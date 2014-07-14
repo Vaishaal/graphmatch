@@ -86,7 +86,7 @@ object Matcher {
     val costs = matcher.computeCost(paths)
 
     // Use greedy set cover to compute the best paths decomposition.
-    val coveringPaths = matcher.coverQuery(paths, costs)
+    val (coveringPaths, coveringPathGraph) = matcher.coverQuery(paths, costs)
 
 
     // Use the union of all possible paths to get preliminary candidate nodes.
@@ -133,7 +133,7 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   }
 
   private def coverQuery (paths: List[List[Feature]], costs: List[Double])
-    : List[List[Feature]] = {
+    : (List[List[Feature]], MMap[Int, ListBuffer[Int]]) = {
     val efficiency = ListBuffer[Double]()
     for ((cost, i) <- costs.view.zipWithIndex) {
       efficiency += paths(i).length/cost
@@ -148,6 +148,9 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
       yield Set[Int](this.nodes(x).key, e)).toSet).foldLeft(covered.empty)((x,y) => x.union(y))
       .filter(_.map(this.nodes(_).nodeType != Matcher.ROAD).reduce((x,y) => x && y))
 
+    val pathLinks = MMap[Int, ListBuffer[Int]]() // Stores which set cover paths are linked in the join phase.
+    val used = ListBuffer[scala.collection.immutable.Set[Feature]]()
+    var index = 0
     while (covered != target && pathsIter.hasNext) {
       val nextPath = pathsIter.next
       var include = false
@@ -164,8 +167,25 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
         val nodes = nextPath._1.map(_.key)
         covered ++= (nodes.drop(1),nodes.dropRight(1)).zipped.toList.map(x => Set[Int](x._1,x._2))
       }
+      val nextPathLinks = ListBuffer[Int]()
+      for ((prevInd, prevLinks) <- pathLinks) {
+        val prevPath = used(prevInd)
+        var intersected = false
+        for (node <- nextPath._1) {
+          if (prevPath.contains(node)) {
+            intersected = true
+          }
+        }
+        if (intersected) {
+          nextPathLinks += prevInd
+          pathLinks(prevInd) += index
+        }
+      }
+      pathLinks(index) = nextPathLinks
+      used += nextPath._1.toSet
+      index += 1
     }
-    coveringPaths.toList
+    (coveringPaths.toList, pathLinks)
   }
 
   private def pIndexHist(path: List[Feature]) : Int =
