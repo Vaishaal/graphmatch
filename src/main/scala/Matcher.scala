@@ -326,10 +326,10 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     // remaining nodes from the node level pruning in the paper.
     val output = ListBuffer[Int]()
     for ((queryNode, candidates) <- prelim) {
-      val queryNeighborStats = MMap[List[Int], Int]().withDefaultValue(0)
+      val queryNeighborStats = MMap[Attributes, Int]().withDefaultValue(0)
       for (queryNeighbor <- queryNode.edges.getOrElse(List[Int]())) {
         val qNN = this.nodes(queryNeighbor) // query neighbor node
-        val key = List[Int](qNN.nodeType, qNN.height.getOrElse(-1), qNN.degree.getOrElse(-1), qNN.roadClass.getOrElse(-1))
+        val key = Attributes.fromFeature(qNN)
         queryNeighborStats(key) += 1
       }
       for (candidate <- candidates) {
@@ -348,8 +348,8 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     output.toList
   }
 
-  private def getNodeNeighborInfo(nodeId: Int) : HashMap[List[Int],Int] = {
-    val neighborMap = new HashMap[List[Int],Int]
+  private def getNodeNeighborInfo(nodeId: Int) : HashMap[Attributes,Int] = {
+    val neighborMap = new HashMap[Attributes,Int]
     val nodeIndex = getNodeIndex("keyIndex").get
     val obj = nodeIndex.get("key", nodeId)
     val node = obj.getSingle()
@@ -362,12 +362,8 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     ALL_BUT_START_NODE
     }.toList
     val neighborProps =
-        neighbors.map(x =>
-                           x.nodeType::
-                           x.height::
-                           x.degree::
-                           x.roadClass::
-                         Nil)
+        neighbors.map(x => Attributes(x.nodeType,
+          x.height, x.length, x.roadClass, x.degree))
     for (n <- neighborProps) {
       neighborMap(n) = neighborMap.getOrElse(n, 0) + 1
     }
@@ -415,5 +411,3 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   }
 
 }
-
-
