@@ -61,7 +61,7 @@ case class Feature(nodeType: Int,
   roadClass: Option[Int],
   edges: Option[List[Int]])
 
-case class FeatureDefaults(nodeType:Int,
+case class FeatureDefaults(nodeType: Int,
   key:Int,
   x:Double,
   y:Double,
@@ -69,6 +69,33 @@ case class FeatureDefaults(nodeType:Int,
   length:Int,
   roadClass:Int,
   degree:Int)
+
+case class Attributes(nodeType: Int, height: Int, length: Int, roadClass: Int, degree: Int) {
+  def === (that: FeatureDefaults) : Boolean = {
+    val tmp = Attributes(that.nodeType,
+      that.height,
+      that.length,
+      that.roadClass,
+      that.degree)
+    this == tmp
+  }
+
+  def === (that: Feature) : Boolean = {
+    val tmp = f2f(that)
+    this === tmp
+  }
+}
+
+object Attributes {
+  def fromFeature(f: Feature) : Attributes = {
+    val tmp = f2f(f)
+    Attributes(tmp.nodeType,
+      tmp.height,
+      tmp.length,
+      tmp.roadClass,
+      tmp.degree)
+  }
+}
 
 class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
 
@@ -201,3 +228,4 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
     println(histogramCol.count() + " unique paths entered in DB")
     shutdown(ds)
 }
+
