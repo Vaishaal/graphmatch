@@ -34,6 +34,7 @@ import scala.util.parsing.json._
 import eu.fakod.neo4jscala._
 import sys.ShutdownHookThread
 import scala.collection.JavaConversions.{asScalaIterator=>_,_}
+import collection.mutable.{ HashMap, MultiMap, Set }
 import org.neo4j.graphdb.Traverser
 import org.neo4j.graphdb.Node
 import org.neo4j.graphalgo.GraphAlgoFactory
@@ -178,7 +179,7 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
     /* TODO: Below is proper scala style to deal with closures, come back and
        fix all closure usage to like this piece of art
     */
-    val singleRoadPaths =
+    val singleRoadPathsSet =
     (pathNodes map { path =>
       (path,
       (path.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "ON") {
@@ -198,8 +199,12 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
         Nil
       }).drop(1).dropRight(1).toList,
        pathR._2.head.key)
-    }).toSet.toList
-
+    }).toSet
+    val singleRoadPaths =
+      (singleRoadPathsSet filter (path => path._1.size > 0)
+      map { path =>
+        if (path._1.head.head > path._1.last.head) (path._1.reverse, path._2) else (path._1, path._2)
+      }).toList
     /* TODO: Find out why there are duplicates in the above list */
 
 
