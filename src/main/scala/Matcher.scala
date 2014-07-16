@@ -83,12 +83,22 @@ object Matcher {
 
     // Decompose the query into all possible paths of a given length.
     val paths = matcher.getPaths(maxDepth)
-
+    val singleRoadPaths =
+    paths filter {path =>
+      (path filter {node: Feature =>
+        node.nodeType != Matcher.INTERSECTION
+      } map {node:Feature =>
+        (node.edges.getOrElse(Nil) filter { edge:Int =>
+          matcher.nodes(edge).nodeType == Matcher.ROAD
+        })
+      }).flatten.toSet.size == 1
+    }
     // Compute the costs of each path.
-    val costs = matcher.computeCost(paths)
+    val costs = matcher.computeCost(singleRoadPaths)
 
     // Use greedy set cover to compute the best paths decomposition.
-    val coveringPaths = matcher.coverQuery(paths, costs)
+    val coveringPaths = matcher.coverQuery(singleRoadPaths, costs)
+    println(coveringPaths.map(_.map(_.nodeType)))
     val roadPaths =
     coveringPaths map {path =>
       (path map {node:Feature =>

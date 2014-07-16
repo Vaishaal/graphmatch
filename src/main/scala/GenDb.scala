@@ -182,7 +182,7 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
     (pathNodes map { path =>
       (path,
       (path.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "ON") {
-        case _ => false
+        case (node: FeatureDefaults, _) => node.nodeType == Matcher.INTERSECTION
         } {
         case (node: FeatureDefaults, _) => node.nodeType == Matcher.ROAD
         }).toList)
