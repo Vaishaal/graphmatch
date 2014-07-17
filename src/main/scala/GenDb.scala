@@ -71,6 +71,7 @@ case class FeatureDefaults(nodeType:Int,
   roadClass:Int,
   degree:Int)
 
+
 class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
 
 
@@ -205,6 +206,8 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
       map { path =>
         if (path._1.head.head > path._1.last.head) (path._1.reverse, path._2) else (path._1, path._2)
       }).toList
+    println(singleRoadPathsSet.size)
+    println(singleRoadPaths.size)
     /* TODO: Find out why there are duplicates in the above list */
 
 
@@ -216,7 +219,7 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
 
     val pathMap = new collection.mutable.HashMap[List[List[Int]], List[List[Int]]]
     val roadMap = new collection.mutable.HashMap[List[Int], Int]
-    val rRoadMap = new HashMap[Int, Set[List[Feature]]] with MultiMap[Int, List[Feature]]
+    val rRoadMap = new HashMap[Int, Set[List[Int]]] with MultiMap[Int, List[Int]]
 
     val db = mongoClient("graphmatch")
     val histogramCol = db("histogram")

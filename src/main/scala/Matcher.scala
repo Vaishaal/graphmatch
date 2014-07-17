@@ -34,10 +34,9 @@ import Implicits._
 
 import scala.util.parsing.json._
 import scala.collection.mutable.{Map => MMap}
-import collection.mutable.{ HashMap, MultiMap, Set }
+import collection.mutable.{ HashMap, MultiMap, Set}
 import scala.collection.mutable.Stack
 import scala.collection.mutable.Set
-import org.neo4j.graphdb.Node
 import scala.collection.mutable.ListBuffer
 import scala.collection.immutable.Range
 import scala.collection.mutable.HashMap
@@ -61,12 +60,23 @@ import org.neo4j.graphalgo.GraphAlgoFactory
 import org.neo4j.graphdb._
 import org.neo4j.kernel.Traversal._
 import eu.fakod.neo4jscala._
+import math._
+
+case class Path(index:Int)
 
 object Matcher {
   val BUILDING = 0
   val INTERSECTION = 1
   val ROAD = 2
   val MAX_PATH_LENGTH = 10
+
+  def distance(p1:(Double, Double), p2:(Double,Double)) = {
+    val dx = p1._1 - p2._1
+    val dy = p1._2 - p2._2
+    val d = sqrt((pow((p1._1 - p2._1),2) + pow((p1._2 - p2._2),2)))
+    d
+  }
+
 
   def query(query:String, dbPath:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
 
@@ -119,8 +129,10 @@ object Matcher {
 
     // Compute path level statistics and get candidate paths.
     val candidatePaths = matcher.getCandidatePaths(candidateNodes, coveringPaths)
-    println(candidatePaths.keySet.map(candidatePaths(_).size).toList)
-
+    println(candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
+    val newCandidatePaths = matcher.reduceByStructure(matcher.reduceByStructure(candidatePaths, roadMap), roadMap)
+    println(newCandidatePaths.keySet.toList.map(newCandidatePaths(_).size).toList)
+    println(newCandidatePaths.keySet.map(k => (k.map(_.key), newCandidatePaths(k))))
 
     // Build joint search space graph.
   }
@@ -447,33 +459,154 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     }
   }
 
-  private def reduceByStructure(candidatePaths: Map[List[Feature], List[List[Feature]]],
-                                roadMap: Map[List[Feature], Int]) {
+  private def reduceByStructure(candidatePaths: Map[List[Feature], List[List[Int]]],
+                                roadMap: Map[List[Feature], Int]) = {
+
+    val queryPaths:List[List[Feature]] = candidatePaths.keySet.toList
+    val dbPaths:List[List[Int]] = candidatePaths.values.flatten.toList
     // Map from road to paths
     val rRoadMap = new HashMap[Int, Set[List[Feature]]] with MultiMap[Int, List[Feature]]
     for ((k,v) <- roadMap) {
       rRoadMap.addBinding(v,k)
     }
     val candidateQueryMap = (for ((k,v) <- candidatePaths; p <- v) yield (p, k)).toMap
-    val pathMap =
+    val pathMap:Map[List[Int], Node] =
     withTx {
       implicit neo =>
       val pathMap =
-      (for ((k,v) <- candidatePaths; p <- v) yield (p, createNode)).toMap
+      (for ((p,i) <- dbPaths.zipWithIndex) yield (p,createNode(Path(i)))).toMap
       pathMap
     }
 
-      for ((k,v) <- pathMap) {
-        val key = path.map(_.key)
-        val kJson = compact(render(key))
-        val o = MongoDBObject("_id" -> kJson)
-        val road = road_col.findOne(o).map(_.getAs[Int]("road")).getOrElse(-1)
-        val ro = MongoDBObject("_id" -> road)
-        val otherPaths = r_road_col.findOne(ro)(_.getAs[String]("paths")).flatten.getOrElse("")
-        val paths = result.map(_.getAs[String]("paths")).flatten.getOrElse("")
-        val otherNode = pathMap(p2)
+    val queryPathMap:Map[List[Feature], Node] =
+    withTx {
+      implicit neo =>
+      val pathMap =
+      (for ((p,i) <- queryPaths.zipWithIndex) yield (p,createNode(Path(i)))).toMap
+      pathMap
+    }
+
+    for ((k,v) <- queryPathMap; (k2,v2) <- queryPathMap) {
+      withTx {
+        implicit neo =>
+        v --> "CLOSE" --> v2
       }
     }
+
+    for ((k,v) <- queryPathMap; k2 <- rRoadMap(roadMap(k))) {
+      withTx {
+        implicit neo =>
+        v --> "SAME_ROAD" --> queryPathMap(k2)
+      }
+    }
+
+    val nodeIndex = getNodeIndex("keyIndex").get
+    val rPathMap:Map[Node, List[Int]] = pathMap.map(_.swap)
+    val rQueryPathMap:Map[Node, List[Feature]] = queryPathMap.map(_.swap)
+      // TODO TODO TODO: This is ugly as FUCK please refactor and fix ASAP
+      // TODO: Make a wrapper so making mongodb queries are not so annoying
+      for ((k,v) <- pathMap) {
+        val kJson:String = compact(render(k))
+        val o = MongoDBObject("_id" -> kJson)
+        val road:Int = road_col.findOne(o).map(_.getAs[Int]("road")).flatten.getOrElse(-1)
+        val po = MongoDBObject("_id" -> road)
+        val otherPathsJson:String  = r_road_col.findOne(po).map(_.getAs[String]("paths")).flatten.getOrElse("")
+        val otherPaths:List[List[Int]] = Serialization.read[List[List[Int]]](otherPathsJson)
+        for (op <- otherPaths) {
+          if (pathMap contains op) {
+            withTx {
+              implicit neo =>
+                pathMap(op) --> "SAME_ROAD" --> v
+            }
+          }
+        }
+        val node2pos = { n:Int =>
+          val obj = nodeIndex.get("key", n.toString)
+          val node = obj.getSingle()
+          val x = node.getProperty("x").asInstanceOf[Double]
+          val y = node.getProperty("y").asInstanceOf[Double]
+          (x,y)
+        }
+
+        val positions = (k map node2pos)
+        for ((op, _) <- pathMap) {
+          val minD =
+          (op map { n =>
+            (positions map { on =>
+              Matcher.distance(on,node2pos(n))
+            }).min
+          }).min
+          if (minD < 10 && op != k) {
+            withTx{
+              implicit neo =>
+                pathMap(op) --> "CLOSE" --> v
+            }
+          }
+        }
+    }
+      val out = MMap[List[Feature], List[List[Int]]]()
+      for ((k,v) <- pathMap) {
+        val queryPath:List[Feature] = candidateQueryMap(k)
+        val queryNode = queryPathMap(queryPath)
+        val joinCandidates =
+        (queryNode.doTraverse[Path](follow(BREADTH_FIRST) ->- "CLOSE")
+        {
+          case(_, tp) => tp.depth > 1
+        }
+        {
+          ALL_BUT_START_NODE
+        } map {(pathNode:Path) =>
+          pathNode.index
+        }).toSet
+        var bad = false
+        for (p <- joinCandidates) {
+
+          val joinable:List[List[Int]] =
+          (v.doTraverse[Path](follow(BREADTH_FIRST) ->- "CLOSE")
+          {
+            case(_, tp) => tp.depth >= 1
+          }
+          {
+            ALL_BUT_START_NODE
+          } map {(pathNode:Path) =>
+            dbPaths(pathNode.index)
+          }).toList
+          if (joinable.intersect(candidatePaths(queryPaths(p))).isEmpty) {
+            bad = true
+          }
+        }
+        val joinCandidates2 =
+        (queryNode.doTraverse[Path](follow(BREADTH_FIRST) ->- "SAME_ROAD")
+        {
+          case(_, tp) => tp.depth > 1
+        }
+        {
+          ALL_BUT_START_NODE
+        } map {(pathNode:Path) =>
+          pathNode.index
+        }).toSet
+        for (p <- joinCandidates2) {
+
+          val joinable:List[List[Int]] =
+          (v.doTraverse[Path](follow(BREADTH_FIRST) ->- "SAME_ROAD")
+          {
+            case(_, tp) => tp.depth >= 1
+          }
+          {
+            ALL_BUT_START_NODE
+          } map {(pathNode:Path) =>
+            dbPaths(pathNode.index)
+          }).toList
+          if (joinable.intersect(candidatePaths(queryPaths(p))).isEmpty) {
+            bad = true
+          }
+        }
+        if (!bad){
+          out(queryPath) = out.getOrElse(queryPath,Nil) ::: (k::Nil)
+        }
+      }
+    out.toMap
+  }
 
   private def pathPU(path: List[Int]) : Double = {
     1.0
