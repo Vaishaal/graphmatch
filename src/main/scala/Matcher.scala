@@ -108,6 +108,10 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   ShutdownHookThread {
     shutdown(ds)
   }
+
+  /***************
+   * Constructor *
+   ***************/
   val DEFAULTCARDINALITY = 100
 
   val db = MongoClient()("graphmatch")
@@ -123,6 +127,11 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     nodes(node.key) = node
   }
   val minProb = alpha // query threshold
+
+
+  /*********************
+   * Query Path Decomp *
+  **********************/
 
   private def computeCost (paths: List[List[Feature]]) : List[Double] = {
     val costs = ListBuffer[Double]()
@@ -389,6 +398,10 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
       false
     }
   }
+
+  /***********************************************
+   * Join Candidate Reduction by K-Partite Graph *
+   ***********************************************/
   /*
   * Creates kpartite graph with no edges
   * Returns tuple of maps, first maps query paths to neo4j nodes, other maps
