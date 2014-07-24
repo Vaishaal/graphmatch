@@ -87,18 +87,34 @@ parser.parse(args, Config()) map {
 
 object Implicits {
 
-implicit def f2f(f:Feature) = {
-  f match {
-    case Feature(t,k,x,y,h,l,d,rc,e) => FeatureDefaults(t,
-      k,
-      x.getOrElse(0),
-      y.getOrElse(0),
-      h.getOrElse(-1),
-      l.getOrElse(-1),
-      rc.getOrElse(-1),
-      d.getOrElse(-1))
-  }
-  }
+val db = MongoClient()("graphmatch")
 
-  implicit val formats = Serialization.formats(NoTypeHints)
+implicit def Node2GraphNode(n:Node):GraphNode = {
+    val attrs = Attributes(nodeType=n.getProperty("nodeType").asInstanceOf[Int],
+                height=n.getProperty("height").asInstanceOf[Int],
+                length=n.getProperty("length").asInstanceOf[Int],
+                roadClass=n.getProperty("roadClass").asInstanceOf[Int],
+                degree=n.getProperty("degree").asInstanceOf[Int])
+    val node = GraphNode(key=n.getProperty("key").asInstanceOf[Long],
+                         x=n.getProperty("x").asInstanceOf[Double],
+                         y=n.getProperty("y").asInstanceOf[Double],
+                         attr=attrs)
+    node
+}
+
+
+implicit def Attribute2DefiniteAttribute(a:Attributes):DefiniteAttributes = {
+  DefiniteAttributes(a.nodeType, a.degree)
+}
+
+// Converts a GraphPath to List of ints
+implicit def GraphPath2NodeKeyList(p:GraphPath):List[Long] = {
+  val pathLookup = db("pathLookup")
+  val po = MongoDBObject("_id" -> p.index)
+  val path = pathLookup.findOne(po).map(_.getAs[List[Long]]("path")).flatten.getOrElse(Nil)
+  path
+}
+
+implicit val formats = Serialization.formats(NoTypeHints)
+
 }
