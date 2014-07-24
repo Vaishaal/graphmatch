@@ -62,7 +62,24 @@ import org.neo4j.kernel.Traversal._
 import eu.fakod.neo4jscala._
 import math._
 
-case class Path(index:Int)
+case class Feature(nodeType: Int,
+  key: Int,
+  x: Option[Double],
+  y: Option[Double],
+  height: Option[Int],
+  length: Option[Int],
+  degree: Option[Int],
+  roadClass: Option[Int],
+  edges: Option[List[Int]])
+
+case class FeatureDefaults(nodeType:Int,
+  key:Int,
+  x:Double,
+  y:Double,
+  height:Int,
+  length:Int,
+  roadClass:Int,
+  degree:Int)
 
 object Matcher {
   val BUILDING = 0

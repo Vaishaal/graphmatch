@@ -49,30 +49,37 @@ import org.json4s.JsonDSL._
 import org.json4s._
 import org.json4s.native.Serialization
 
+case class GraphNode(
+  key:Long,
+  attr:Attributes,
+  x:Double = -1,
+  y:Double = -1
+)
+/* Definite Attributes are attributes that can be measured with
+very low uncertainty and have a finite discrete set of acceptable values
+e.g nodeType, intersection degree. KEEP THIS CLASS SMALL */
 
+case class DefiniteAttributes(
+  nodeType:Int,
+  degree:Int
+)
 
+/* Attributes are values that are transferable from query to DB */
+case class Attributes(
+  nodeType:Int,
+  height:Int = -1,
+  length:Int = -1,
+  roadClass:Int = -1,
+  degree:Int = -1
+)
 
-case class Feature(nodeType: Int,
-  key: Int,
-  x: Option[Double],
-  y: Option[Double],
-  height: Option[Int],
-  length: Option[Int],
-  degree: Option[Int],
-  roadClass: Option[Int],
-  edges: Option[List[Int]])
+case class GraphPath(index:Int, road:Long = -1)
 
-case class FeatureDefaults(nodeType:Int,
-  key:Int,
-  x:Double,
-  y:Double,
-  height:Int,
-  length:Int,
-  roadClass:Int,
-  degree:Int)
-
-
-class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
+class GenDb(db_path: String, nodes_path: String, edges_path: String)
+extends Neo4jWrapper
+with EmbeddedGraphDatabaseServiceProvider
+with Neo4jIndexProvider
+with TypedTraverser {
 
 
   override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
@@ -80,82 +87,90 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("roadClassIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     Nil
-
     def neo4jStoreDir = db_path
-    val graph_json = scala.io.Source.fromFile(json_path).mkString
+    val nodes_json = scala.io.Source.fromFile(nodes_path).mkString
+    val edges_json = scala.io.Source.fromFile(edges_path).mkString
 
     implicit val formats = Serialization.formats(NoTypeHints)
-    val decode = Serialization.read[List[Feature]](graph_json)
-
-    val node_map = (for (p <- decode) yield (p.key, p)).toMap
+    val decodeNodes = Serialization.read[List[GraphNode]](nodes_json)
+    val decodeEdges = Serialization.read[Map[String, List[Long]]](edges_json)
+    println(decodeNodes)
+    println(decodeEdges)
+    val node_map = (for (p <- decodeNodes) yield (p.key, p)).toMap
     val N = 11
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
     val heightIndex = getNodeIndex("heightIndex").get
     val roadClassIndex = getNodeIndex("roadClassIndex").get
+
     val LABELSIZE = 3
+    val SENTINEL = -1
     val SINKKEY = -1
     val SOURCEKEY = -2
-
+    val SOURCENODE = GraphNode(SOURCEKEY, Attributes(-1))
+    val SINKNODE = GraphNode(SINKKEY, Attributes(-1))
     val (source, sink) =
       withTx {
         implicit neo =>
-          val source = createNode
-          val sink = createNode
-          source("nodeType") = -1
-          source("height") = -1
-          source("degree") = -1
-          source("roadClass") = -1
-          source("key") = SOURCEKEY
-          sink("nodeType") = -1
-          sink("degree") = -1
-          sink("height") = -1
-          sink("roadClass") = -1
-          sink("key") = SINKKEY
-          val nodes = (for ((k, v) <- node_map) yield (k, createNode(f2f(v))))
+          val source = bindNode(SOURCENODE, createNode)
+          val sink = bindNode(SINKNODE, createNode)
+          val nodes = (for ((k, v) <- node_map) yield (k, bindNode(v, createNode))).toMap
           for ((k,v) <- node_map) nodeIndex += (nodes(k), "key", k.toString)
           for ((k,v) <- node_map) {
             val node = nodes(k)
             source --> "NEXT_TO" --> node
             node --> "NEXT_TO" --> sink
-            v.nodeType match {
+            v.attr.nodeType match {
               case 0 => processBuilding(v, node)
               case 1 => processIntersection(v, node)
               case 2 => processRoad(v, node)
-}
+              }
             }
             (source, sink)
           }
-    def processBuilding(v:Feature, n:Node) = {
-      /* TODO: Use monads here */
-      heightIndex += (n, "height", v.height.getOrElse(-1).toString)
-      for (e:Int <- v.edges.get) {
+    /* Binds everything in gn to neo4j node instance in node */
+    def bindNode(gn: GraphNode, n:Node):Node = {
+      n("key") = gn.key
+      n("x") = gn.x
+      n("y") = gn.y
+      n("height") = gn.attr.height
+      n("length") = gn.attr.length
+      n("nodeType") = gn.attr.nodeType
+      n("degree") = gn.attr.degree
+      n("roadClass") = gn.attr.roadClass
+      n
+    }
+
+    def processBuilding(v:GraphNode, n:Node) = {
+      heightIndex += (n, "height", v.attr.height.toString)
+      for (e:Long <- decodeEdges.getOrElse(v.key.toString, Nil)){
         val node = nodeIndex.get("key",e.toString).getSingle()
-        val node_f = node_map.get(e)
-        if (node_f.nonEmpty) {
-          node_f.get.nodeType match {
+        val node_f = node_map.getOrElse(e,SOURCENODE)
+        if (node_f != SOURCENODE){
+          node_f.attr.nodeType match {
             case 0 => n --> "NEXT_TO" --> node
             case 1 => n --> "NEXT_TO" --> node
             case 2 => n --> "ON" --> node
-      }
           }
         }
       }
-    def processRoad(v:Feature, n:Node) = {
-      roadClassIndex += (n, "roadClass", v.roadClass.getOrElse(-1).toString)
     }
-    def processIntersection(v:Feature, n:Node) = {
-      /* TODO: Use monads here */
-      degreeIndex += (n, "degree", v.degree.getOrElse(-1).toString)
-      for (e:Int <- v.edges.get) {
+
+    def processRoad(v:GraphNode, n:Node) = {
+      roadClassIndex += (n, "roadClass", v.attr.roadClass.toString)
+    }
+
+    def processIntersection(v:GraphNode, n:Node) = {
+      degreeIndex += (n, "degree", v.attr.degree.toString)
+      for (e:Long <- decodeEdges.getOrElse(v.key.toString, Nil)) {
         val node = nodeIndex.get("key",e.toString).getSingle()
-        val node_f = node_map.get(e)
-        if (node_f.nonEmpty) {
-          node_f.get.nodeType match {
+        val node_f = node_map.getOrElse(e,SOURCENODE)
+        if (node_f != SOURCENODE){
+          node_f.attr.nodeType match {
             case 0 => n --> "NEXT_TO" --> node
-            case 1 => //
+            case 1 => assert(false, "Intersections should not be connected to other intersections")
             case 2 => n --> "CONNECTS" --> node
-    }
+          }
           }
         }
       }
@@ -163,95 +178,89 @@ class GenDb(db_path: String, json_path: String) extends Neo4jWrapper with Embedd
     val expander = pathExpanderForTypes("NEXT_TO", Direction.OUTGOING)
     val finder = GraphAlgoFactory.allSimplePaths(expander, N)
     val NODETYPE = 1
-    val paths:List[List[List[Int]]]  = finder.findAllPaths(source,sink).map(x => x.filter({
-      y => y match {
-        case y:Node => true
-        case _ => false
-    }
-    // Apparentely asInstanceOf is bad practice in Scala but no known workaround
-    // TODO: Implement implicits so this isn't so ugly
-    }).map(z => z.getProperty("key").asInstanceOf[Int]::
-                z.getProperty("nodeType").asInstanceOf[Int]::
-                z.getProperty("height").asInstanceOf[Int]::
-                z.getProperty("degree").asInstanceOf[Int]::
-                z.getProperty("roadClass").asInstanceOf[Int]::
-                Nil).drop(1).dropRight(1).toList).toList
-    val pathNodes = paths.map(path => path.map(node => nodeIndex.get("key", node.head.toString).getSingle()))
-    /* TODO: Below is proper scala style to deal with closures, come back and
-       fix all closure usage to like this piece of art
-    */
+    val allPaths:List[Path] = finder.findAllPaths(source,sink).toList
+    val paths =
+        (allPaths map {path =>
+          (path filter { pathElem =>
+            pathElem match {
+              case y:Node => true
+              case _ => false
+            }
+          } map { pathElem =>
+            pathElem.asInstanceOf[Node]
+          }).toList.drop(1).dropRight(1)
+        })
+    paths map (path => path.map(node =>
+          if (node.attr.nodeType == Matcher.ROAD) {
+            //assert(false, "ROADS CANT SHOW UP ON PATHS")
+          }))
+    // TODO: The traversal library currently used by Neo4j-Scala is deprecated
+    // Fix in forked repo (it is a quite simple fix)
+
     val singleRoadPathsSet =
-    (pathNodes map { path =>
+    (paths map { path =>
       (path,
-      (path.doTraverse[FeatureDefaults](follow(BREADTH_FIRST) ->- "ON") {
-        case (node: FeatureDefaults, _) => node.nodeType == Matcher.INTERSECTION
-        } {
-        case (node: FeatureDefaults, _) => node.nodeType == Matcher.ROAD
-        }).toList)
+      (path map {node =>
+        node.traverse(Traverser.Order.BREADTH_FIRST,
+                     {tp: TraversalPosition =>
+                       tp.depth > 1 ||
+                       {
+                         val cn = tp.currentNode()
+                         (cn.attr.nodeType == Matcher.INTERSECTION ||
+                           cn.getRelationships("ON",Direction.OUTGOING).toList.size > 1)
+                       }
+                     },
+                     {tp:TraversalPosition =>
+                        tp.currentNode().attr.nodeType == Matcher.ROAD
+                     },
+                     "ON",
+                     Direction.OUTGOING
+                     )
+      } map (t => t.toList)).toList)
     } filter {
-      pathR => pathR._2.size == 1
-    } map { pathR:(List[Node],List[FeatureDefaults]) =>
-      ((pathR._1 map { node:Node =>
-        node.getProperty("key").asInstanceOf[Int]::
-        node.getProperty("nodeType").asInstanceOf[Int]::
-        node.getProperty("height").asInstanceOf[Int]::
-        node.getProperty("degree").asInstanceOf[Int]::
-        node.getProperty("roadClass").asInstanceOf[Int]::
-        Nil
-      }).drop(1).dropRight(1).toList,
-       pathR._2.head.key)
+      pathR => (pathR._2.flatten.toSet.size == 1 &&
+                pathR._1.head.attr.nodeType != Matcher.ROAD)
+    } map {
+      pathR => (pathR._1, pathR._2.flatten.head)
     }).toSet
     val singleRoadPaths =
       (singleRoadPathsSet filter (path => path._1.size > 0)
       map { path =>
-        if (path._1.head.head > path._1.last.head) (path._1.reverse, path._2) else (path._1, path._2)
+        if (path._1.head.key > path._1.last.key) (path._1.reverse, path._2) else (path._1, path._2)
       }).toList
+    /* TODO: Find out why there are duplicates in the above list */
     println(singleRoadPathsSet.size)
     println(singleRoadPaths.size)
-    /* TODO: Find out why there are duplicates in the above list */
-
-
     // Create a histogram of paths store in mongoDB
     val mongoClient = MongoClient()
-    val map = new collection.mutable.HashMap[List[List[Int]],Int]
-
-    /* TODO: Change the value of this HM to a mutable collection */
-
-    val pathMap = new collection.mutable.HashMap[List[List[Int]], List[List[Int]]]
-    val roadMap = new collection.mutable.HashMap[List[Int], Int]
-    val rRoadMap = new HashMap[Int, Set[List[Int]]] with MultiMap[Int, List[Int]]
-
     val db = mongoClient("graphmatch")
+    // This collection maps from a integer (a path id) to a list of node_ids
+    val pathLookup = db("pathLookup")
+    val index2Path = new collection.mutable.HashMap[Int, GraphPath]
+
+    // Histogram of definite attributes
+    val histMap = new collection.mutable.HashMap[List[DefiniteAttributes],Int]
+
+    // Map from definite attributes to a list of realizations of those attributes.
+    // Each value in the int corresponds to a path in the collection pathLookup
+    val pathMap = new collection.mutable.HashMap[List[DefiniteAttributes], List[Int]]
     val histogramCol = db("histogram")
     val pathCol = db("paths")
-    val roadCol = db("roads")
-    val rRoadCol = db("rRoads")
-    for (p <- singleRoadPaths) {
-      val key = p._1.map(_.tail)
-      val value = p._1.map(_.dropRight(LABELSIZE).head)
-      map(key) = map.getOrElse(key,0) + 1
-      pathMap(key) = pathMap.getOrElse(key, Nil) ::: (value :: Nil)
-      roadMap(value) = p._2
-      rRoadMap.addBinding(p._2,value)
-    }
-    for ((k,v) <- map) {
-      val kJson = compact(render(k))
-      val o = MongoDBObject("_id" -> kJson, "count" -> v)
-      histogramCol.insert(o)
-      val po = MongoDBObject("_id" -> kJson, "paths" -> compact(render(pathMap(k))))
-    /* TODO: Find out why there are duplicates in the below list */
-      val pathSet = pathMap(k).toSet
-      for (p <- pathSet) {
-        val ro = MongoDBObject("_id" -> compact(render(p)), "road" -> roadMap(p))
-        roadCol.insert(ro)
-      }
-      pathCol.insert(po)
-    }
-    for ((k,v) <- rRoadMap) {
-      val o = MongoDBObject("_id" -> k, "paths" -> compact(render(v.toList)))
-      rRoadCol.insert(o)
-    }
 
+    for ((p,i) <- singleRoadPaths.zipWithIndex) {
+      val path = GraphPath(i,p._2.key)
+      val path_obj = MongoDBObject("_id"->i,"path"->(p._1 map (_.key)), "road" -> p._2.key)
+      pathLookup.insert(path_obj)
+      index2Path(i) = path
+      val key = p._1 map (node => Attribute2DefiniteAttribute(node.attr))
+      histMap(key) = histMap.getOrElse(key,0) + 1
+      pathMap(key) = pathMap.getOrElse(key, Nil) ::: (i :: Nil)
+    }
+    for ((k,v) <- histMap) {
+      val kJson = Serialization.write(k)
+      histogramCol.insert(MongoDBObject("_id" -> kJson, "count" -> v))
+      pathCol.insert(MongoDBObject("_id" -> kJson, "paths" -> pathMap(k)))
+    }
     println(histogramCol.count() + " unique paths entered in DB")
     shutdown(ds)
 }
