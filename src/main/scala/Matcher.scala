@@ -229,7 +229,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
      val o = MongoDBObject("_id" -> kJson)
      val result = path_col.findOne(o)
      val paths = result.map(_.getAs[List[Int]]("paths")).flatten.getOrElse(Nil)
-     paths map (GraphPath(_))
+     paths map (pi => GraphPath(pi, path_lookup_col.findOne(MongoDBObject("_id" -> pi)).map(_.getAs[Long]("road")).flatten.getOrElse(-1)))
   }
 
   private def getPaths (maxLength: Int) : List[List[GraphNode]] = {
@@ -423,26 +423,20 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   }
 
   private def getCandidatePaths(candidateNodes: List[Long], coveringPaths: List[List[GraphNode]])
-    : Map[List[GraphNode], List[List[Long]]] = {
+    : Map[List[GraphNode], List[GraphPath]] = {
     // Returns a map from the paths in the set cover to the list of paths (by node ID)
     // in the database that correspond to the set cover paths, after path level pruning.
-    val out = MMap[List[GraphNode], List[List[Long]]]()
-  //  var before = 0
- //   var after = 0
+    val out = MMap[List[GraphNode], List[GraphPath]]()
     for (setPath <- coveringPaths) {
       val prelim = pIndex(setPath, this.minProb)
-    //  before += prelim.length
-      val passed = ListBuffer[List[Long]]()
+      val passed = ListBuffer[GraphPath]()
       for (path <- prelim) {
         if (checkPath(path.toList, candidateNodes)) {
           passed += path
         }
       }
-   //   after += passed.length
       out(setPath) = passed.toList
     }
-  //  println(before)
-  //  println(after)
     out.toMap
   }
 
