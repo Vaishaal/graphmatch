@@ -64,6 +64,7 @@ import math._
 
 
 object Matcher {
+  type KPartiteGraph = (HashMap[List[GraphNode],Node], HashMap[GraphPath, Node])
   val BUILDING = 0
   val INTERSECTION = 1
   val ROAD = 2
@@ -126,36 +127,43 @@ object Matcher {
     // Compute node level statistics and get candidate nodes.
     val candidateNodes = matcher.getCandidateNodes(prelimNodes)
     // Compute path level statistics and get candidate paths.
-    val candidatePaths = matcher.getCandidatePaths(candidateNodes, coveringPaths)
+    val candidatePaths:Map[List[GraphNode], List[GraphPath]] = matcher.getCandidatePaths(candidateNodes, coveringPaths)
     println("Candidate paths " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
-    /*
-    val newCandidatePaths = matcher.reduceByStructure(matcher.reduceByStructure(candidatePaths, roadMap), roadMap)
-    println(newCandidatePaths.keySet.toList.map(newCandidatePaths(_).size).toList)
-    println(newCandidatePaths.keySet.map(k => (k.map(_.key), newCandidatePaths(k))))
+    val kpg:KPartiteGraph = matcher.createKPartite(candidatePaths);
+    matcher.addCloseEdges(kpg);
+    matcher.prune(kpg, candidatePaths);
+    val newCandidatePaths = matcher.kPartite2CandidatePaths(kpg, candidatePaths);
+    println(newCandidatePaths.map(kv => (kv._1, kv._2.map(_.toList))))
+    println("Candidate paths " + newCandidatePaths.keySet.toList.map(newCandidatePaths(_).size).toList)
 
-    // Build joint search space graph.
-    */
   }
 
 }
 
-class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String)
-  extends Neo4jWrapper with EmbeddedGraphDatabaseServiceProvider with Neo4jIndexProvider with TypedTraverser {
+class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1)
+  extends Neo4jWrapper
+  with EmbeddedGraphDatabaseServiceProvider
+  with Neo4jIndexProvider
+  with TypedTraverser {
+
+  override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("roadClassIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("kPartiteIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    Nil
   ShutdownHookThread {
     shutdown(ds)
   }
   val DEFAULTCARDINALITY = 100
 
+  val nodeIndex = getNodeIndex("keyIndex").get
   val db = MongoClient()("graphmatch")
   val hist_col = db("histogram")
   val path_col = db("paths")
   val path_lookup_col = db("pathLookup")
   val road_col = db("roads")
   val r_road_col = db("rRoads")
-  override def NodeIndexConfig = ("keyIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
-    ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
-    ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
- Nil
   def neo4jStoreDir = dbPath
   val nodes = MMap[Long, GraphNode]()
   for (node <- nodeList) {
@@ -456,35 +464,132 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   * Returns tuple of maps, first maps query paths to neo4j nodes, other maps
   * database paths to neo4j nodes
   */
-  type KPartiteGraph = (Map[List[GraphNode],Node], Map[List[Int], Node])
-  def createKPartite(candidatePaths: Map[List[GraphNode], List[Int]])
+  def createKPartite(candidatePaths: Map[List[GraphNode], List[GraphPath]]) =
   {
+    println("Building KPartite")
+    val queryPaths = new HashMap[List[GraphNode],Node]()
+    val realPaths =  new HashMap[GraphPath,Node]()
+    for ((qp,gps) <- candidatePaths) {
+      withTx {
+        implicit neo =>
+          queryPaths(qp) = createNode
+      }
+      for (gp <- gps) {
+        withTx {
+          implicit neo =>
+            realPaths(gp) = createNode
+        }
+      }
+    }
+    (queryPaths, realPaths)
 
   }
-
+  def addRoadEdges(kpg:Matcher.KPartiteGraph)
+  {
+    val queryPaths = kpg._1
+    val realPaths = kpg._2
+  }
   /*
   * Adds "close" edges to kpartite graph
   */
-  def addCloseEdge(kpg:KPartiteGraph)
+  def addCloseEdges(kpg:Matcher.KPartiteGraph)
   {
+    println("Adding close edges")
+    val queryPaths = kpg._1
+    val realPaths = kpg._2
+    for ((qp,qpn) <- queryPaths) {
+      for ((qp2, qpn2) <- queryPaths) {
+        withTx {
+          implicit neo =>
+            qpn --> "CLOSE" --> qpn2
+        }
+      }
+    }
 
-  }
+    // Maps List of Neo4j nodes to a "SuperNode" representing that particular path
+    val pathNodes:HashMap[List[Node], Node] = realPaths.map(kv => (kv._1.map(nodeId => nodeIndex.get("key",nodeId).getSingle()),kv._2))
+    for ((rp,rpn) <- pathNodes) {
+      val positions = (rp map (n => (n.x,n.y)))
+      for ((rp2,rpn2) <- pathNodes) {
+          val positions2 = (rp2 map (n => (n.x,n.y)))
+          val minD =
+          (positions map { n =>
+            (positions2 map { n2 =>
+              Matcher.distance(n,n2)
+            }).min
+          }).min
+          if (minD < queryDistance) {
+            withTx{
+              implicit neo =>
+                rpn --> "CLOSE" --> rpn2
+            }
+          }
+        }
+      }
+    }
+
 
   /*
    * Prunes kpartite graph by removing nodes that do not have edges to
    * the partition they are supposed to connect to. Prunes until graph doesn't change.
    */
-  def prune(kpg:KPartiteGraph)
+  def prune(kpg:Matcher.KPartiteGraph, candidatePaths: Map[List[GraphNode], List[GraphPath]])
   {
-
+    println("PRUNING")
+    val queryPaths:HashMap[List[GraphNode],Node] = kpg._1
+    val realPaths:HashMap[GraphPath,Node] = kpg._2
+    val queryPathsR = queryPaths.map(_.swap)
+    val realPathsR = realPaths.map(_.swap)
+    var pruned = false;
+    do {
+      pruned = false;
+      for ((qp,qpn) <- queryPaths){
+        println("LOOP")
+        val rps = candidatePaths(qp);
+        for (r <- qpn.getRelationships()) {
+          val qpn2 = r.getOtherNode(qpn);
+          val rType = r.getType();
+          val rps2 = candidatePaths(queryPathsR(qpn2)) filter (rp => realPaths.contains(rp));
+          val joinable:List[GraphPath] = (rps2 map (realPaths(_)) map { node =>
+              node.getRelationships(rType) map { r =>
+              realPathsR(r.getOtherNode(node))
+              }
+            }).flatten
+          for (rp <- rps) {
+            if (realPaths.contains(rp)) {
+              val rpn = realPaths(rp)
+              val joins:List[GraphPath] = rpn.getRelationships(rType).map(r => realPathsR(r.getOtherNode(rpn))).toList;
+              val empty = (joins intersect joinable).isEmpty
+              if (empty) {
+                println("PRUNED!");
+                pruned = true;
+                withTx {
+                  implicit neo =>
+                  rpn.getRelationships().map(r => r.delete());
+                  rpn.delete();
+                }
+                realPaths.remove(rp);
+                realPathsR.remove(rpn);
+              }
+            }
+          }
+        }
+      }
+    } while (pruned);
   }
 
   /*
    * Converts kpartite to a candidatePaths map
    */
-  def kPartite2CandidatePaths(kpg:KPartiteGraph)
+  def kPartite2CandidatePaths(kpg:Matcher.KPartiteGraph,  candidatePaths:Map[List[GraphNode], List[GraphPath]]) =
   {
-
+    val queryPaths:HashMap[List[GraphNode],Node] = kpg._1
+    val realPaths:HashMap[GraphPath,Node] = kpg._2
+    val newCandidatePaths = new HashMap[List[GraphNode], List[GraphPath]]()
+    for ((k,v) <- candidatePaths) {
+      newCandidatePaths(k) = (realPaths.keySet.toList intersect v).toList
+    }
+    newCandidatePaths.toMap
   }
 
   private def reduceByStructure(candidatePaths: Map[List[GraphNode], List[List[Long]]],

@@ -39,6 +39,7 @@ import org.neo4j.graphdb.Traverser
 import org.neo4j.graphdb.Node
 import org.neo4j.graphalgo.GraphAlgoFactory
 import org.neo4j.graphdb._
+import org.neo4j.graphdb.traversal.Evaluator
 import org.neo4j.kernel.Traversal._
 import scala.language.implicitConversions
 import sys.process._
@@ -94,8 +95,6 @@ with TypedTraverser {
     implicit val formats = Serialization.formats(NoTypeHints)
     val decodeNodes = Serialization.read[List[GraphNode]](nodes_json)
     val decodeEdges = Serialization.read[Map[String, List[Long]]](edges_json)
-    println(decodeNodes)
-    println(decodeEdges)
     val node_map = (for (p <- decodeNodes) yield (p.key, p)).toMap
     val N = 11
     val nodeIndex = getNodeIndex("keyIndex").get
