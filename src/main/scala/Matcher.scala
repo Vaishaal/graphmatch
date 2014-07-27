@@ -108,6 +108,10 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
   ShutdownHookThread {
     shutdown(ds)
   }
+
+  /***************
+   * Constructor *
+   ***************/
   val DEFAULTCARDINALITY = 100
 
   val db = MongoClient()("graphmatch")
@@ -123,6 +127,11 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     nodes(node.key) = node
   }
   val minProb = alpha // query threshold
+
+
+  /*********************
+   * Query Path Decomp *
+  **********************/
 
   private def computeCost (paths: List[List[Feature]]) : List[Double] = {
     val costs = ListBuffer[Double]()
@@ -388,6 +397,45 @@ class Matcher (nodeList: List[Feature], alpha: Double, dbPath: String)
     } else {
       false
     }
+  }
+
+  /***********************************************
+   * Join Candidate Reduction by K-Partite Graph *
+   ***********************************************/
+  /*
+  * Creates kpartite graph with no edges
+  * Returns tuple of maps, first maps query paths to neo4j nodes, other maps
+  * database paths to neo4j nodes
+  */
+  type KPartiteGraph = (Map[List[Feature],Node], Map[List[Int], Node])
+  def createKPartite(candidatePaths: Map[List[Feature], List[Int]])
+  {
+
+  }
+
+  /*
+  * Adds "close" edges to kpartite graph
+  */
+  def addCloseEdge(kpg:KPartiteGraph)
+  {
+
+  }
+
+  /*
+   * Prunes kpartite graph by removing nodes that do not have edges to
+   * the partition they are supposed to connect to. Prunes until graph doesn't change.
+   */
+  def prune(kpg:KPartiteGraph)
+  {
+
+  }
+
+  /*
+   * Converts kpartite to a candidatePaths map
+   */
+  def kPartite2CandidatePaths(kpg:KPartiteGraph)
+  {
+
   }
 
   private def pathPU(path: List[Int]) : Double = {
