@@ -14,7 +14,7 @@ testScalaStyle := {
 
 (stage in Compile) <<= (stage in Compile) dependsOn testScalaStyle
 
-scalacOptions ++= Seq("-unchecked", "-deprecation", "-feature", "-Xfatal-warnings")
+//scalacOptions ++= Seq("-unchecked", "-deprecation", "-feature", "-Xfatal-warnings")
 
 name := "hello"
 

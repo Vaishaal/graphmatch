@@ -34,6 +34,8 @@ import scopt._
 import sys.process._
 import com.mongodb.casbah.Imports._
 
+import org.neo4j.graphdb.Node
+
 import org.json4s._
 import org.json4s.native.JsonMethods._
 import org.json4s.native.Serialization
@@ -44,7 +46,8 @@ case class Config(gen: Boolean = false,
                   reset: Boolean = false,
                   query: String = "",
                   dbpath: String = "/tmp/test.db",
-                  jsonpath: String = "bg.json"
+                  nodejsonpath: String = "bg.nodes.json",
+                  edgejsonpath: String = "bg.edges.json"
                   )
 object Main extends App {
 
@@ -66,9 +69,14 @@ val parser = new scopt.OptionParser[Config]("graphmatch") {
   .action { (x, c) =>  c.copy(dbpath = x)}
   .text("Location of neo4j database ")
 
-  opt[String]("db_json")
-  .action { (x, c) =>  c.copy(dbpath = x)}
-  .text("Location of json to generate neo4j and mongodb database, by default looks for bg.json in cwd ")
+  opt[String]("db_nodes_json")
+  .action { (x, c) =>  c.copy(nodejsonpath = x)}
+  .text("Location of json with graph nodes to generate neo4j and mongodb database, by default looks for bg.nodes.json in cwd ")
+
+  opt[String]("db_edges_json")
+  .action { (x, c) =>  c.copy(edgejsonpath = x)}
+  .text("Location of json with graph edges to generate neo4j and mongodb database, by default looks for bg.edges.json in cwd ")
+
 
 }
 
@@ -78,7 +86,7 @@ parser.parse(args, Config()) map {
                                ("rm -rf " + config.dbpath).!!
                                MongoClient()("graphmatch").dropDatabase()
                               }
-            if (config.gen) { new GenDb(config.dbpath, config.jsonpath)
+            if (config.gen) { new GenDb(config.dbpath, config.nodejsonpath, config.edgejsonpath)
                               println("Data base successfully generated")
                             }
             if (config.query != "") Matcher.query(config.query, config.dbpath)
@@ -87,18 +95,34 @@ parser.parse(args, Config()) map {
 
 object Implicits {
 
-implicit def f2f(f:Feature) = {
-  f match {
-    case Feature(t,k,x,y,h,l,d,rc,e) => FeatureDefaults(t,
-      k,
-      x.getOrElse(0),
-      y.getOrElse(0),
-      h.getOrElse(-1),
-      l.getOrElse(-1),
-      rc.getOrElse(-1),
-      d.getOrElse(-1))
-  }
-  }
+val db = MongoClient()("graphmatch")
 
-  implicit val formats = Serialization.formats(NoTypeHints)
+implicit def Node2GraphNode(n:Node):GraphNode = {
+    val attrs = Attributes(nodeType=n.getProperty("nodeType").asInstanceOf[Int],
+                height=n.getProperty("height").asInstanceOf[Int],
+                length=n.getProperty("length").asInstanceOf[Int],
+                roadClass=n.getProperty("roadClass").asInstanceOf[Int],
+                degree=n.getProperty("degree").asInstanceOf[Int])
+    val node = GraphNode(key=n.getProperty("key").asInstanceOf[Long],
+                         x=n.getProperty("x").asInstanceOf[Double],
+                         y=n.getProperty("y").asInstanceOf[Double],
+                         attr=attrs)
+    node
+}
+
+
+implicit def Attribute2DefiniteAttribute(a:Attributes):DefiniteAttributes = {
+  DefiniteAttributes(a.nodeType, a.degree)
+}
+
+// Converts a GraphPath to List of ints
+implicit def GraphPath2NodeKeyList(p:GraphPath):List[Long] = {
+  val pathLookup = db("pathLookup")
+  val po = MongoDBObject("_id" -> p.index)
+  val path = pathLookup.findOne(po).map(_.getAs[List[Long]]("path")).flatten.getOrElse(Nil)
+  path
+}
+
+implicit val formats = Serialization.formats(NoTypeHints)
+
 }
