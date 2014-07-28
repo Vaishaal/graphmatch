@@ -119,7 +119,8 @@ object Matcher {
       }).toSet.toList.head
     }
     // Map from  path to road
-    val roadMap = (coveringPaths zip roadPaths).toMap
+    val roadMap:Map[List[GraphNode], Int] = (coveringPaths zip roadPaths).toMap
+    matcher.roadMap  = roadMap;
     println(coveringPaths.map(matcher.pIndex(_,0.5).size))
     // Use the union of all possible paths to get preliminary candidate nodes.
     val prelimNodes = matcher.nodesByPath(coveringPaths)
@@ -131,10 +132,11 @@ object Matcher {
     println("Candidate paths " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
     val kpg:KPartiteGraph = matcher.createKPartite(candidatePaths);
     matcher.addCloseEdges(kpg);
+    matcher.addRoadEdges(kpg);
     matcher.prune(kpg, candidatePaths);
     val newCandidatePaths = matcher.kPartite2CandidatePaths(kpg, candidatePaths);
-    println(newCandidatePaths.map(kv => (kv._1, kv._2.map(_.toList))))
-    println("Candidate paths " + newCandidatePaths.keySet.toList.map(newCandidatePaths(_).size).toList)
+    //println(newCandidatePaths.map(kv => (kv._1, kv._2.map(_.toList))))
+    println("Pruned Candidate paths " + newCandidatePaths.keySet.toList.map(newCandidatePaths(_).size).toList)
 
   }
 
@@ -150,7 +152,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("roadClassIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
-    ("kPartiteIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("kPartiteRoadIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     Nil
   ShutdownHookThread {
     shutdown(ds)
@@ -158,12 +160,14 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   val DEFAULTCARDINALITY = 100
 
   val nodeIndex = getNodeIndex("keyIndex").get
+  val roadIndex = getNodeIndex("kPartiteRoadIndex").get
   val db = MongoClient()("graphmatch")
   val hist_col = db("histogram")
   val path_col = db("paths")
   val path_lookup_col = db("pathLookup")
   val road_col = db("roads")
   val r_road_col = db("rRoads")
+  var roadMap:Map[List[GraphNode], Int] = Map.empty
   def neo4jStoreDir = dbPath
   val nodes = MMap[Long, GraphNode]()
   for (node <- nodeList) {
@@ -470,14 +474,17 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     val queryPaths = new HashMap[List[GraphNode],Node]()
     val realPaths =  new HashMap[GraphPath,Node]()
     for ((qp,gps) <- candidatePaths) {
+      val road = -1*roadMap(qp);
       withTx {
         implicit neo =>
           queryPaths(qp) = createNode
+          roadIndex += (queryPaths(qp), "road", road.toString)
       }
       for (gp <- gps) {
         withTx {
           implicit neo =>
             realPaths(gp) = createNode
+            roadIndex += (realPaths(gp), "road", gp.road.toString)
         }
       }
     }
@@ -488,6 +495,25 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   {
     val queryPaths = kpg._1
     val realPaths = kpg._2
+    for ((qp, qpn) <- queryPaths) {
+      val sameRoad = roadIndex.get("road",(-1*roadMap(qp)).toString)
+      for (qpn2 <- sameRoad) {
+        withTx {
+          implicit neo =>
+            qpn --> "SAME_BLOCK" --> qpn2
+        }
+      }
+    }
+    for ((rp, rpn) <- realPaths) {
+      val sameRoad = roadIndex.get("road",rp.road.toString)
+      for (rpn2 <- sameRoad) {
+        withTx {
+          implicit neo =>
+            rpn --> "SAME_BLOCK" --> rpn2
+        }
+      }
+    }
+
   }
   /*
   * Adds "close" edges to kpartite graph
@@ -507,7 +533,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     }
 
     // Maps List of Neo4j nodes to a "SuperNode" representing that particular path
-    val pathNodes:HashMap[List[Node], Node] = realPaths.map(kv => (kv._1.map(nodeId => nodeIndex.get("key",nodeId).getSingle()),kv._2))
+    val pathNodes:HashMap[List[Node], Node] = realPaths.map(kv => (kv._1.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle()),kv._2))
     for ((rp,rpn) <- pathNodes) {
       val positions = (rp map (n => (n.x,n.y)))
       for ((rp2,rpn2) <- pathNodes) {
@@ -541,10 +567,13 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     val queryPathsR = queryPaths.map(_.swap)
     val realPathsR = realPaths.map(_.swap)
     var pruned = false;
+    val pruneStat = new HashMap[String,Int]()
+    var i = 0;
     do {
+      println("COUNT: " + i)
+      i += 1
       pruned = false;
       for ((qp,qpn) <- queryPaths){
-        println("LOOP")
         val rps = candidatePaths(qp);
         for (r <- qpn.getRelationships()) {
           val qpn2 = r.getOtherNode(qpn);
@@ -561,7 +590,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
               val joins:List[GraphPath] = rpn.getRelationships(rType).map(r => realPathsR(r.getOtherNode(rpn))).toList;
               val empty = (joins intersect joinable).isEmpty
               if (empty) {
-                println("PRUNED!");
+                pruneStat(rType.name())  = pruneStat.getOrElse(rType.name(),0) + 1
                 pruned = true;
                 withTx {
                   implicit neo =>
@@ -576,6 +605,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
         }
       }
     } while (pruned);
+    println(pruneStat)
   }
 
   /*
