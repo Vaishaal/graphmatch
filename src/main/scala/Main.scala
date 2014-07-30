@@ -44,7 +44,8 @@ import scala.language.implicitConversions
 
 case class Config(gen: Boolean = false,
                   reset: Boolean = false,
-                  query: String = "",
+                  queryNodes: String = "",
+                  queryEdges: String = "",
                   dbpath: String = "/tmp/test.db",
                   nodejsonpath: String = "bg.nodes.json",
                   edgejsonpath: String = "bg.edges.json"
@@ -62,7 +63,7 @@ val parser = new scopt.OptionParser[Config]("graphmatch") {
   .text("Deletes existing neo4j and mongodb database")
 
   opt[String]('q', "query")
-  .action { (x, c) => c.copy(query = x)}
+  .action { (x, c) => c.copy(queryNodes = x + ".nodes.json").copy(queryEdges = x +  ".edges.json")}
   .text("Query location")
 
   opt[String]('d', "dbpath")
@@ -89,7 +90,7 @@ parser.parse(args, Config()) map {
             if (config.gen) { new GenDb(config.dbpath, config.nodejsonpath, config.edgejsonpath)
                               println("Data base successfully generated")
                             }
-            if (config.query != "") Matcher.query(config.query, config.dbpath)
+            if (config.queryNodes != "") Matcher.query(config.queryNodes,config.queryEdges, config.dbpath)
   }
 }
 

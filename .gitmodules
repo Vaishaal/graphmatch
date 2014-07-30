@@ -1,0 +1,3 @@
+[submodule "lib/geoscript"]
+	path = lib/geoscript
+	url = git@github.com:dwins/geoscript.scala.git
