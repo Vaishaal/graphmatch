@@ -125,6 +125,7 @@ object Matcher {
     val candidateNodes = matcher.getCandidateNodes(prelimNodes)
     // Compute path level statistics and get candidate paths.
     val candidatePaths:Map[List[GraphNode], List[GraphPath]] = matcher.getCandidatePaths(candidateNodes, coveringPaths)
+    println("Candidate paths " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
     val kpg:KPartiteGraph = matcher.createKPartite(candidatePaths);
     matcher.addCloseEdges(kpg);
     matcher.addRoadEdges(kpg);
@@ -135,7 +136,7 @@ object Matcher {
   }
 }
 
-class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637")
+class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637", val angleL:Double=357.287, val angleH:Double=194.614, val mainRoad:Int=21) // scalastyle:ignore
   extends Neo4jWrapper
   with EmbeddedGraphDatabaseServiceProvider
   with Neo4jIndexProvider
@@ -435,7 +436,8 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       val prelim = pIndex(setPath, this.minProb)
       val passed = ListBuffer[GraphPath]()
       for (path <- prelim) {
-        if (checkPath(path.toList, candidateNodes)) {
+        val rightDirection = angleBetween(nodeIndex.get("key",path.road.toString).getSingle().attr.angle, angleL, angleH) || (mainRoad !=  roadMap(setPath))
+        if (rightDirection && checkPath(path.toList, candidateNodes)) {
           passed += path
         }
       }
@@ -626,10 +628,22 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     }
     newCandidatePaths.toMap
   }
-
+  def angleBetween(n:Double, a:Double, b:Double) = {
+    val nn = (360 + (n % 360)) % 360;
+    val an = (360 + (a % 360)) % 360;
+    val bn = (360 + (b % 360)) % 360;
+    if (an < bn) {
+      an <= nn && nn <= bn;
+    } else {
+      an <= nn || nn <= bn;
+    }
+  }
   private def generateShapefile(candidatePaths: Map[List[GraphNode], List[GraphPath]]) = {
     val finalPaths:List[GraphPath] = candidatePaths.values.toList.flatten
-    val finalNodes = graphPaths2NodeSet(finalPaths)
+    val finalPathsFiltered =
+    finalPaths.filter(p =>
+      angleBetween(nodeIndex.get("key",p.road.toString).getSingle().attr.angle, angleL, angleH))
+    val finalNodes = graphPaths2NodeSet(finalPathsFiltered)
     val Place = "id".of[String] ~ "the_geom".of[Point]
     forceXYMode()
     val lonlat = lookupEPSG("EPSG:4326").get

@@ -103,7 +103,8 @@ implicit def Node2GraphNode(n:Node):GraphNode = {
                 height=n.getProperty("height").asInstanceOf[Int],
                 length=n.getProperty("length").asInstanceOf[Int],
                 roadClass=n.getProperty("roadClass").asInstanceOf[Int],
-                degree=n.getProperty("degree").asInstanceOf[Int])
+                degree=n.getProperty("degree").asInstanceOf[Int],
+                angle=n.getProperty("angle").asInstanceOf[Double])
     val node = GraphNode(key=n.getProperty("key").asInstanceOf[Long],
                          x=n.getProperty("x").asInstanceOf[Double],
                          y=n.getProperty("y").asInstanceOf[Double],
