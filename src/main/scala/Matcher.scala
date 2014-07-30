@@ -71,7 +71,7 @@ import org.geoscript.geometry.builder._
 
 
 object Matcher {
-  type KPartiteGraph = (HashMap[List[GraphNode],Node], HashMap[GraphPath, Node])
+  type KPartiteGraph = (HashMap[List[GraphNode],Node], HashMap[(Node,GraphPath), Node])
   val BUILDING = 0
   val INTERSECTION = 1
   val ROAD = 2
@@ -130,9 +130,9 @@ object Matcher {
     matcher.addRoadEdges(kpg);
     matcher.prune(kpg, candidatePaths);
     val newCandidatePaths = matcher.kPartite2CandidatePaths(kpg, candidatePaths);
+    println("Pruned Candidate paths " + newCandidatePaths.keySet.toList.map(newCandidatePaths(_).size).toList)
     matcher.generateShapefile(newCandidatePaths)
   }
-
 }
 
 class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637")
@@ -464,7 +464,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   {
     println("Building KPartite")
     val queryPaths = new HashMap[List[GraphNode],Node]()
-    val realPaths =  new HashMap[GraphPath,Node]()
+    val realPaths =  new HashMap[(Node,GraphPath),Node]()
     for ((qp,gps) <- candidatePaths) {
       val road = -1*roadMap(qp);
       withTx {
@@ -475,44 +475,48 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       for (gp <- gps) {
         withTx {
           implicit neo =>
-            realPaths(gp) = createNode
-            roadIndex += (realPaths(gp), "road", gp.road.toString)
+            realPaths((queryPaths(qp),gp)) = createNode
+            roadIndex += (realPaths(queryPaths(qp),gp), "road", gp.road.toString)
         }
       }
     }
     (queryPaths, realPaths)
-
   }
   def addRoadEdges(kpg:Matcher.KPartiteGraph)
   {
+    println("Adding Road Edges")
     val queryPaths = kpg._1
     val realPaths = kpg._2
+    val realPathsR = realPaths.map(_.swap)
     for ((qp, qpn) <- queryPaths) {
-      val sameRoad = roadIndex.get("road",(-1*roadMap(qp)).toString)
+      val sameRoad = roadIndex.get("road",(-1*roadMap(qp)).toString).toSet
       for (qpn2 <- sameRoad) {
+        if (qpn != qpn2) {
         withTx {
           implicit neo =>
             qpn --> "SAME_BLOCK" --> qpn2
+          }
         }
       }
     }
     for ((rp, rpn) <- realPaths) {
-      val sameRoad = roadIndex.get("road",rp.road.toString)
+      val sameRoad = roadIndex.get("road",rp._2.road.toString).toSet
       for (rpn2 <- sameRoad) {
+        if (rpn2 != rpn) {
         withTx {
           implicit neo =>
             rpn --> "SAME_BLOCK" --> rpn2
         }
       }
+      }
     }
-
   }
+
   /*
   * Adds "close" edges to kpartite graph
   */
   def addCloseEdges(kpg:Matcher.KPartiteGraph)
   {
-    println("Adding close edges")
     val queryPaths = kpg._1
     val realPaths = kpg._2
     for ((qp,qpn) <- queryPaths) {
@@ -523,9 +527,8 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
         }
       }
     }
-
     // Maps List of Neo4j nodes to a "SuperNode" representing that particular path
-    val pathNodes:HashMap[List[Node], Node] = realPaths.map(kv => (kv._1.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle()),kv._2))
+    val pathNodes:HashMap[List[Node], Node] = realPaths.map(kv => (kv._1._2.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle()),kv._2))
     for ((rp,rpn) <- pathNodes) {
       val positions = (rp map (n => (n.x,n.y)))
       for ((rp2,rpn2) <- pathNodes) {
@@ -553,46 +556,43 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
    */
   def prune(kpg:Matcher.KPartiteGraph, candidatePaths: Map[List[GraphNode], List[GraphPath]])
   {
-    println("PRUNING")
     val queryPaths:HashMap[List[GraphNode],Node] = kpg._1
-    val realPaths:HashMap[GraphPath,Node] = kpg._2
+    val realPaths:HashMap[(Node,GraphPath),Node] = kpg._2
+    val allPaths:List[GraphPath] = candidatePaths.values.flatten.toList
+    val pathCount = allPaths.foldLeft(Map[GraphPath,Int]() withDefaultValue 0){
+      (m,x) => m + (x -> (1 + m(x)))}
     val queryPathsR = queryPaths.map(_.swap)
     val realPathsR = realPaths.map(_.swap)
+
     var pruned = false;
     val pruneStat = new HashMap[String,Int]()
     var i = 0;
     do {
-      println("COUNT: " + i)
+      pruned = false
       i += 1
-      pruned = false;
       for ((qp,qpn) <- queryPaths){
         val rps = candidatePaths(qp);
         for (r <- qpn.getRelationships()) {
           val qpn2 = r.getOtherNode(qpn);
           val rType = r.getType();
-          val rps2 = candidatePaths(queryPathsR(qpn2)) filter (rp => realPaths.contains(rp));
-          val joinable:List[GraphPath] = (rps2 map (realPaths(_)) map { node =>
-              node.getRelationships(rType) map { r =>
-              realPathsR(r.getOtherNode(node))
-              }
-            }).flatten
-          for (rp <- rps) {
-            if (realPaths.contains(rp)) {
-              val rpn = realPaths(rp)
-              val joins:List[GraphPath] = rpn.getRelationships(rType).map(r => realPathsR(r.getOtherNode(rpn))).toList;
-              val empty = (joins intersect joinable).isEmpty
-              if (empty) {
-                pruneStat(rType.name())  = pruneStat.getOrElse(rType.name(),0) + 1
-                pruned = true;
-                withTx {
-                  implicit neo =>
-                  rpn.getRelationships().map(r => r.delete());
-                  rpn.delete();
+          val joinable:List[(Node,GraphPath)] = candidatePaths(queryPathsR(qpn2)) filter (rp => realPaths.contains((qpn2,rp))) map ( rp => (qpn2, rp));
+            for (rp <- rps) {
+              if (realPaths.contains((qpn,rp))) {
+                val rpn = realPaths((qpn,rp))
+                val joins:List[(Node,GraphPath)] = rpn.getRelationships(rType).map(r => realPathsR(r.getOtherNode(rpn))).toList
+                var empty = (joins intersect joinable).isEmpty && !(joins.isEmpty && joinable.isEmpty)
+                if (empty) {
+                  pruneStat(rType.name())  = pruneStat.getOrElse(rType.name(),0) + 1
+                  pruned = true;
+                  withTx {
+                    implicit neo =>
+                    rpn.getRelationships().map(r => r.delete());
+                    rpn.delete();
+                  }
+                  realPaths.remove((qpn,rp));
+                  realPathsR.remove(rpn);
                 }
-                realPaths.remove(rp);
-                realPathsR.remove(rpn);
               }
-            }
           }
         }
       }
@@ -618,10 +618,11 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   def kPartite2CandidatePaths(kpg:Matcher.KPartiteGraph,  candidatePaths:Map[List[GraphNode], List[GraphPath]]) =
   {
     val queryPaths:HashMap[List[GraphNode],Node] = kpg._1
-    val realPaths:HashMap[GraphPath,Node] = kpg._2
+    val queryPathsR = queryPaths.map(_.swap)
+    val realPaths:HashMap[(Node,GraphPath),Node] = kpg._2
     val newCandidatePaths = new HashMap[List[GraphNode], List[GraphPath]]()
-    for ((k,v) <- candidatePaths) {
-      newCandidatePaths(k) = (realPaths.keySet.toList intersect v).toList
+    for ((k,v) <- realPaths.keySet) {
+      newCandidatePaths(queryPathsR(k)) = v::newCandidatePaths.getOrElse(queryPathsR(k),Nil)
     }
     newCandidatePaths.toMap
   }
