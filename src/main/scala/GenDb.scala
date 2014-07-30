@@ -49,6 +49,7 @@ import org.json4s.native.JsonMethods._
 import org.json4s.JsonDSL._
 import org.json4s._
 import org.json4s.native.Serialization
+import math._
 
 case class GraphNode(
   key:Long,
@@ -140,6 +141,7 @@ with TypedTraverser {
       n("nodeType") = gn.attr.nodeType
       n("degree") = gn.attr.degree
       n("roadClass") = gn.attr.roadClass
+      n("angle") = toDegrees(gn.attr.angle)
       n
     }
 
