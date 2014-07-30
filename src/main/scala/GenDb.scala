@@ -71,7 +71,8 @@ case class Attributes(
   height:Int = -1,
   length:Int = -1,
   roadClass:Int = -1,
-  degree:Int = -1
+  degree:Int = -1,
+  angle:Double = -1
 )
 
 case class GraphPath(index:Int, road:Long = -1)
@@ -87,6 +88,7 @@ with TypedTraverser {
     ("degreeIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("heightIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     ("roadClassIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
+    ("kPartiteRoadIndex", Some(Map("provider" -> "lucene", "type" -> "fulltext"))) ::
     Nil
     def neo4jStoreDir = db_path
     val nodes_json = scala.io.Source.fromFile(nodes_path).mkString
@@ -101,6 +103,7 @@ with TypedTraverser {
     val degreeIndex = getNodeIndex("degreeIndex").get
     val heightIndex = getNodeIndex("heightIndex").get
     val roadClassIndex = getNodeIndex("roadClassIndex").get
+    val roadIndex = getNodeIndex("kPartiteRoadIndex").get
 
     val LABELSIZE = 3
     val SENTINEL = -1
@@ -157,6 +160,17 @@ with TypedTraverser {
 
     def processRoad(v:GraphNode, n:Node) = {
       roadClassIndex += (n, "roadClass", v.attr.roadClass.toString)
+      for (e:Long <- decodeEdges.getOrElse(v.key.toString, Nil)){
+        val node = nodeIndex.get("key",e.toString).getSingle()
+        val node_f = node_map.getOrElse(e,SOURCENODE)
+        if (node_f != SOURCENODE){
+          node_f.attr.nodeType match {
+            case 0 => node --> "ON" --> n
+            case 1 => node --> "CONNECTS" --> n
+            case 2 => assert(false,"Blocks should not touch blocks")
+          }
+        }
+      }
     }
 
     def processIntersection(v:GraphNode, n:Node) = {
