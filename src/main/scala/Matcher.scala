@@ -61,6 +61,13 @@ import org.neo4j.graphdb._
 import org.neo4j.kernel.Traversal._
 import eu.fakod.neo4jscala._
 import math._
+import org.geoscript.layer._
+import org.geoscript.projection._
+import org.geoscript.feature._
+import org.geoscript.workspace._
+import org.geoscript.geometry._
+import org.geoscript.feature.builder._
+import org.geoscript.geometry.builder._
 
 
 object Matcher {
@@ -123,11 +130,12 @@ object Matcher {
     matcher.addRoadEdges(kpg);
     matcher.prune(kpg, candidatePaths);
     val newCandidatePaths = matcher.kPartite2CandidatePaths(kpg, candidatePaths);
+    matcher.generateShapefile(newCandidatePaths)
   }
 
 }
 
-class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1)
+class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637")
   extends Neo4jWrapper
   with EmbeddedGraphDatabaseServiceProvider
   with Neo4jIndexProvider
@@ -143,7 +151,6 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     shutdown(ds)
   }
   val DEFAULTCARDINALITY = 100
-
   val nodeIndex = getNodeIndex("keyIndex").get
   val roadIndex = getNodeIndex("kPartiteRoadIndex").get
   val db = MongoClient()("graphmatch")
@@ -592,7 +599,19 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     } while (pruned);
     println(pruneStat)
   }
-
+  /*
+   * Converts a list of candidate paths to a set of candidate nodes
+   */
+  def graphPaths2NodeSet(candidatePaths:List[GraphPath]):Set[GraphNode] = {
+    val nodeSet:Set[GraphNode] = Set.empty;
+    for (path <- candidatePaths) {
+      for (nodeKey <- path){
+       val node:Node = nodeIndex.get("key",nodeKey.toString).getSingle()
+       nodeSet.add(Node2GraphNode(node))
+      }
+    }
+    nodeSet
+  }
   /*
    * Converts kpartite to a candidatePaths map
    */
@@ -607,9 +626,20 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     newCandidatePaths.toMap
   }
 
-  private def reduceByStructure(candidatePaths: Map[List[GraphNode], List[List[Long]]],
-                                roadMap: Map[List[GraphNode], Int]) = {
-
+  private def generateShapefile(candidatePaths: Map[List[GraphNode], List[GraphPath]]) = {
+    val finalPaths:List[GraphPath] = candidatePaths.values.toList.flatten
+    val finalNodes = graphPaths2NodeSet(finalPaths)
+    val Place = "id".of[String] ~ "the_geom".of[Point]
+    forceXYMode()
+    val lonlat = lookupEPSG("EPSG:4326").get
+    val utm = lookupEPSG(utmZone).get
+    val transform = utm.to(lonlat)
+    val (schema, mkFeature) = Place.schemaAndFactory("output",lonlat)
+    val ws = Directory("output/")
+    val layer = (ws.create(schema)).writable.get
+    for (n <- finalNodes){
+      layer += mkFeature(n.key.toString ~ transform(Point(n.x,n.y)))
+    }
   }
 
   private def pathPU(path: List[Int]) : Double = {
