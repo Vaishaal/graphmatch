@@ -78,17 +78,10 @@ object Matcher {
   }
 
 
-  def query(query:String, dbPath:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
-
-    val source = fromFile(query)
-
+  def query(queryNodes:String, queryEdges:String, dbPath:String, maxLength:Int=MAX_PATH_LENGTH):Unit =  {
     val maxDepth = 20
-
-    val lines = source.mkString
-    source.close()
-    val nodes_json = scala.io.Source.fromFile("query.nodes.json").mkString
-    val edges_json = scala.io.Source.fromFile("query.edges.json").mkString
-
+    val nodes_json = scala.io.Source.fromFile(queryNodes).mkString
+    val edges_json = scala.io.Source.fromFile(queryEdges).mkString
     val nodes = Serialization.read[List[GraphNode]](nodes_json)
     val edges = Serialization.read[Map[String,List[Int]]](edges_json)
     val matcher = new Matcher(nodes, edges, 0.5, dbPath)
@@ -106,10 +99,8 @@ object Matcher {
     }
     // Compute the costs of each path.
     val costs = matcher.computeCost(singleRoadPaths)
-
     // Use greedy set cover to compute the best paths decomposition.
     val coveringPaths = matcher.coverQuery(singleRoadPaths, costs)
-    println(coveringPaths.map(_.map(_.attr.nodeType)))
     val roadPaths =
     coveringPaths map {path =>
       (path map {node:GraphNode =>
@@ -121,23 +112,17 @@ object Matcher {
     // Map from  path to road
     val roadMap:Map[List[GraphNode], Int] = (coveringPaths zip roadPaths).toMap
     matcher.roadMap  = roadMap;
-    println(coveringPaths.map(matcher.pIndex(_,0.5).size))
     // Use the union of all possible paths to get preliminary candidate nodes.
     val prelimNodes = matcher.nodesByPath(coveringPaths)
-
     // Compute node level statistics and get candidate nodes.
     val candidateNodes = matcher.getCandidateNodes(prelimNodes)
     // Compute path level statistics and get candidate paths.
     val candidatePaths:Map[List[GraphNode], List[GraphPath]] = matcher.getCandidatePaths(candidateNodes, coveringPaths)
-    println("Candidate paths " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
     val kpg:KPartiteGraph = matcher.createKPartite(candidatePaths);
     matcher.addCloseEdges(kpg);
     matcher.addRoadEdges(kpg);
     matcher.prune(kpg, candidatePaths);
     val newCandidatePaths = matcher.kPartite2CandidatePaths(kpg, candidatePaths);
-    //println(newCandidatePaths.map(kv => (kv._1, kv._2.map(_.toList))))
-    println("Pruned Candidate paths " + newCandidatePaths.keySet.toList.map(newCandidatePaths(_).size).toList)
-
   }
 
 }
