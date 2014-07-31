@@ -49,7 +49,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
     for i, building in enumerate(building_centroids.T):
         if i % 100 == 0:
             print i
-        if i > 300:
+        if i > 200:
             break
         candidate_segments = []
         for road_id in road_to_segments:
@@ -89,8 +89,9 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
 
     # Create edges.
     edges = defaultdict(lambda: [])
+    left_merge = {} # If one of the ends of a segment isn't an intersection, it needs to get stithced to another segment.
+    right_merge = {} # We don't need any additional data structures here because ...
     for segment in segment_to_buildings:
-        # Only buildings that are linked to intersections are allowed to have more than 2 edges.
         buildings = segment_to_buildings[segment]
         buildings.sort(key=lambda x: x[1])
         for i in range(1, len(buildings)-1):
@@ -101,8 +102,23 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             edges[str(buildings[i][0])].append(buildings[i+1][0])
         if segment[0] in intersection_set:
             edges[str(buildings[0][0])].append(intersection_id[segment[0]])
+            if len(buildings) > 1:
+                edges[str(buildings[0][0])].append(buildings[1][0])
+        else:
+            left_merge[segment[0]] = (buildings[0], segment[-1]) # Segments that need a merge on the left.
         if segment[-1] in intersection_set:
             edges[str(buildings[-1][0])].append(intersection_id[segment[-1]])
+            if len(buildings) > 1:
+                edges[str(buildings[-1][0])].append(buildings[-2][0])
+        else:
+            right_merge[segment[-1]] = (buildings[-1], segment[0]) # Segments that need a merge on the left.
+    for point in left_merge:
+        if point in right_merge:
+            right, other_r = left_merge[point]
+            left, other_l = right_merge[point]
+            if other_r != other_l: # To prune out cul-de-sacs
+                edges[str(right[0])].append(left[0])
+                edges[str(left[0])].append(right[0])
 
     # Generate visualization shapefiles.
     if visualization_sf_path != '':
