@@ -5,10 +5,17 @@ from math import pi
 from scipy.spatial import *
 import utm
 from collections import defaultdict
+import json
 
 PIPE_WIDTH = 20 # Max width of the pipe in meters.
 ANGLE_TOLERANCE = 3,14/8 # Angle of tolerance that we can call straight for determining T intersections.
 DEGREE = 1 # Field of the intersections record that contains degree.
+OVERLAP_THRESHOLD = 10 # Number of meters the centroids of two buildings have to be apart to count as non-overlapping.
+
+# Matcher node types.
+BUILDING = 0
+INTERSECTION = 1
+ROAD = 2
 
 def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_path):
     # Read in the shapefiles.
@@ -65,8 +72,6 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
     for i, building in enumerate(building_centroids.T):
         if i % 100 == 0:
             print i
-        if i > 200:
-            break
         candidate_segments = []
         for road_id in road_to_segments:
             segments = road_to_segments[road_id]
@@ -194,6 +199,36 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             wp.record(intersection_id[intersection])
         wp.save(visualization_sf_path + '.points.shp')
 
+    # Output json files.
+    output_edges = json.dump(edges)
+    fe = open('db.edges.json', 'w+')
+    fe.write(output_edges)
+    fe.close()
+    node_data = []
+    for i, centroid in enumerate(building_centroids):
+        node_data.append({'key': i,\
+                'attr': { 'length': -1,\
+                    'height': -1,\
+                    'angle': 0,\
+                    'roadClass': -1\
+                    'degree': -1,\
+                    'nodeType': BUILDING},\
+                'x': centroid[0],\
+                'y': centroid[1]})
+    for i, intersection in enumerate(intersections_utm):
+        node_data.append({'key': intersection_base + i,\
+                'attr': { 'length': -1,\
+                    'height': -1,\
+                    'angle': 0,\
+                    'roadClass': -1\
+                    'degree': irecords[i][DEGREE],\
+                    'nodeType': INTERSECTION},\
+                'x': intersection[0],\
+                'y': intersection[1]})
+    output_nodes = json.dump(node_data)
+    fn = open('db.nodes.json', 'w+')
+    fn.write(output_nodes)
+    fn.close()
 
 ####################
 # Helper Functions #
@@ -243,7 +278,7 @@ def prune_interior_buildings(buildings, segment, building_db):
         segment_vector = np.array(segment[1]) - base
         rightmost = max(map(lambda x: (np.array(x) - base).dot(segment_vector), poly_a))
         leftmost = min(map(lambda x: (np.array(x) - base).dot(segment_vector), poly_b))
-        if leftmost < rightmost:
+        if leftmost < rightmost and abs(buildings[i][2] - buildings[i+1][2]) > OVERLAP_THRESHOLD:
             if buildings[i][2] < buildings[i+1][2]:
                 to_remove.add(buildings[i+1])
             elif buildings[i][2] > buildings[i+1][2]:
