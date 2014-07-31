@@ -1,17 +1,21 @@
 import argparse
 import shapefile
 import numpy as np
+from math import pi
 from scipy.spatial import *
 import utm
 from collections import defaultdict
 
 PIPE_WIDTH = 20 # Max width of the pipe in meters.
+ANGLE_TOLERANCE = 3,14/8 # Angle of tolerance that we can call straight for determining T intersections.
+DEGREE = 1 # Field of the intersections record that contains degree.
 
 def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_path):
     # Read in the shapefiles.
     build_sf = shapefile.Reader(building_sf_path) # Polygons.
     int_sf = shapefile.Reader(intersection_sf_path) # Points.
     road_sf = shapefile.Reader(road_sf_path) # Series of line segments.
+    irecords = int_sf.records()
 
     # Convert everything to UTM.
     buildings_utm = map(lambda building: [lonlat_to_utm(corner) for corner in building.points], build_sf.shapes())
@@ -20,11 +24,15 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
 
     # Create a set of registered intersections.
     intersection_set = set()
+    # Find the intersections that have T intersections.
+    tees = set()
     intersection_id = {} # Intersection IDs start after building IDs.
     intersection_base = len(buildings_utm)
     for i, intersection in enumerate(intersections_utm):
         intersection_set.add(tuple(intersection))
         intersection_id[tuple(intersection)] = intersection_base + i
+        if irecords[i][DEGREE] == 3:
+            tees.add(tuple(intersection))
 
     # Generate a KDTree of buildings to facilitate linking.
     building_centroids = np.zeros([2, len(build_sf.shapes())])
@@ -35,7 +43,15 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
         centroid_to_building[centroid] = buildings_utm[i]
     centroid_tree = KDTree(building_centroids)
 
-    # Breaks roads down into segments.
+    # Go through road DB to find the bottom tip of each T intersection (one on a different line from the other two.
+    tee_tips = {}
+    for road in roads_utm:
+        if tuple(road[0]) in tees:
+            tee_tips[tuple(road[0])] = road[1]
+        if tuple(road[-1]) in tees:
+            tee_tips[tuple(road[-1])] = road[-2]
+
+    # Breaks roads down into segments. Fills in dictionary for T intersections to the adjacent road nodes.
     road_to_segments = defaultdict(lambda: [])
     for road_id, road in enumerate(roads_utm):
         for i in range(len(road) - 1):
@@ -101,18 +117,46 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             n = buildings[i+1] # n for next
             edges[str(buildings[i][0])].append(buildings[i-1][0])
             edges[str(buildings[i][0])].append(buildings[i+1][0])
-        if segment[0] in intersection_set:
+        if segment[0] in tees:
+            other_tip = tee_tips[segment[0]]
+            seg_vector = np.array(segment[-1]) - np.array(segment[0])
+            branch_vector = np.array(other_tip) - np.array(segment[0])
+            determination = np.cross(branch_vector, seg_vector)
+            if determination > 0:
+                left_merge[segment[0]] = (buildings[0], segment[-1])
+                if len(buildings) > 1:
+                    edges[str(buildings[0][0])].append(buildings[1][0])
+            else:
+                edges[str(buildings[0][0])].append(intersection_id[segment[0]])
+                if len(buildings) > 1:
+                    edges[str(buildings[0][0])].append(buildings[1][0])
+        elif segment[0] in intersection_set:
             edges[str(buildings[0][0])].append(intersection_id[segment[0]])
             if len(buildings) > 1:
                 edges[str(buildings[0][0])].append(buildings[1][0])
         else:
             left_merge[segment[0]] = (buildings[0], segment[-1]) # Segments that need a merge on the left.
-        if segment[-1] in intersection_set:
+
+        if segment[-1] in tees:
+            other_tip = tee_tips[segment[-1]]
+            seg_vector = np.array(segment[0]) - np.array(segment[-1])
+            branch_vector = np.array(other_tip) - np.array(segment[-1])
+            determination = np.cross(seg_vector, branch_vector)
+            if determination > 0:
+                right_merge[segment[-1]] = (buildings[-1], segment[-1])
+                if len(buildings) > 1:
+                    edges[str(buildings[-1][0])].append(buildings[-2][0])
+            else:
+                edges[str(buildings[-1][0])].append(intersection_id[segment[-1]])
+                if len(buildings) > 1:
+                    edges[str(buildings[-1][0])].append(buildings[-2][0])
+        elif segment[-1] in intersection_set:
             edges[str(buildings[-1][0])].append(intersection_id[segment[-1]])
             if len(buildings) > 1:
                 edges[str(buildings[-1][0])].append(buildings[-2][0])
         else:
             right_merge[segment[-1]] = (buildings[-1], segment[0]) # Segments that need a merge on the left.
+
     for point in left_merge:
         if point in right_merge:
             right, other_r = left_merge[point]
@@ -173,6 +217,9 @@ def compute_centroid(polygon):
     Cy = Cy/(6*A)
     return (Cx, Cy)
 
+def get_angle(u, v):
+    return abs(float(np.arccos((u/np.linalg.norm(u)).dot(v/np.linalg.norm(v)))))
+
 def shares_intersection(seg1, seg2, intersections):
     if tuple(seg1[0]) in intersections or tuple(seg2[0]) in intersections or tuple(seg1[1]) in intersections or tuple(seg2[1]) in intersections:
         if seg1[0] == seg2[0] or\
@@ -203,6 +250,7 @@ def prune_interior_buildings(buildings, segment, building_db):
                 to_remove.add(buildings[i])
     for item in to_remove:
         buildings.remove(item)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Links buildings and intersections for the database.')
