@@ -69,6 +69,7 @@ import org.geoscript.geometry._
 import org.geoscript.feature.builder._
 import org.geoscript.geometry.builder._
 
+import com.thesamet.spatial._
 
 object Matcher {
   type KPartiteGraph = (HashMap[List[GraphNode],Node], HashMap[(Node,GraphPath), Node])
@@ -123,6 +124,7 @@ object Matcher {
     val prelimNodes = matcher.nodesByPath(coveringPaths)
     // Compute node level statistics and get candidate nodes.
     val candidateNodes = matcher.getCandidateNodes(prelimNodes)
+    println(candidateNodes)
     // Compute path level statistics and get candidate paths.
     val candidatePaths:Map[List[GraphNode], List[GraphPath]] = matcher.getCandidatePaths(candidateNodes, coveringPaths)
     println("Candidate paths " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
@@ -136,7 +138,7 @@ object Matcher {
   }
 }
 
-class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637", val angleL:Double=357.287, val angleH:Double=194.614, val mainRoad:Int=21) // scalastyle:ignore
+class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637", val angleL:Double=357.287, val angleH:Double=194.614, val mainRoad:Int=(21)) // scalastyle:ignore
   extends Neo4jWrapper
   with EmbeddedGraphDatabaseServiceProvider
   with Neo4jIndexProvider
@@ -151,6 +153,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   ShutdownHookThread {
     shutdown(ds)
   }
+  val DENSITY = 3
   val DEFAULTCARDINALITY = 100
   val nodeIndex = getNodeIndex("keyIndex").get
   val roadIndex = getNodeIndex("kPartiteRoadIndex").get
@@ -436,7 +439,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       val prelim = pIndex(setPath, this.minProb)
       val passed = ListBuffer[GraphPath]()
       for (path <- prelim) {
-        val rightDirection = angleBetween(nodeIndex.get("key",path.road.toString).getSingle().attr.angle, angleL, angleH) || (mainRoad !=  roadMap(setPath))
+        val rightDirection = angleBetween(nodeIndex.get("key",path.road.toString).getSingle().attr.angle, angleL, angleH) || (roadMap(setPath) != mainRoad)
         if (rightDirection && checkPath(path.toList, candidateNodes)) {
           passed += path
         }
@@ -467,21 +470,18 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     println("Building KPartite")
     val queryPaths = new HashMap[List[GraphNode],Node]()
     val realPaths =  new HashMap[(Node,GraphPath),Node]()
-    for ((qp,gps) <- candidatePaths) {
-      val road = -1*roadMap(qp);
-      withTx {
+    withTx {
         implicit neo =>
+        for ((qp,gps) <- candidatePaths) {
+          val road = -1*roadMap(qp);
           queryPaths(qp) = createNode
           roadIndex += (queryPaths(qp), "road", road.toString)
-      }
-      for (gp <- gps) {
-        withTx {
-          implicit neo =>
+          for (gp <- gps) {
             realPaths((queryPaths(qp),gp)) = createNode
             roadIndex += (realPaths(queryPaths(qp),gp), "road", gp.road.toString)
+          }
         }
       }
-    }
     (queryPaths, realPaths)
   }
   def addRoadEdges(kpg:Matcher.KPartiteGraph)
@@ -489,28 +489,30 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     println("Adding Road Edges")
     val queryPaths = kpg._1
     val realPaths = kpg._2
-    val realPathsR = realPaths.map(_.swap)
+    val road:Stack[(Node,Node)] = new Stack()
     for ((qp, qpn) <- queryPaths) {
       val sameRoad = roadIndex.get("road",(-1*roadMap(qp)).toString).toSet
       for (qpn2 <- sameRoad) {
         if (qpn != qpn2) {
-        withTx {
-          implicit neo =>
-            qpn --> "SAME_BLOCK" --> qpn2
-          }
+          road.push((qpn,qpn2))
         }
       }
     }
+
     for ((rp, rpn) <- realPaths) {
       val sameRoad = roadIndex.get("road",rp._2.road.toString).toSet
       for (rpn2 <- sameRoad) {
         if (rpn2 != rpn) {
-        withTx {
-          implicit neo =>
-            rpn --> "SAME_BLOCK" --> rpn2
+          road.push((rpn,rpn2))
         }
       }
-      }
+    }
+
+  withTx {
+      implicit neo =>
+        for ((rpn,rpn2) <- road) {
+          rpn --> "CLOSE"  --> rpn2
+       }
     }
   }
 
@@ -519,38 +521,40 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   */
   def addCloseEdges(kpg:Matcher.KPartiteGraph)
   {
+    println("Adding close edges")
+    val close:Stack[(Node,Node)] = new Stack()
     val queryPaths = kpg._1
     val realPaths = kpg._2
     for ((qp,qpn) <- queryPaths) {
       for ((qp2, qpn2) <- queryPaths) {
-        withTx {
-          implicit neo =>
-            qpn --> "CLOSE" --> qpn2
-        }
-      }
-    }
-    // Maps List of Neo4j nodes to a "SuperNode" representing that particular path
-    val pathNodes:HashMap[List[Node], Node] = realPaths.map(kv => (kv._1._2.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle()),kv._2))
-    for ((rp,rpn) <- pathNodes) {
-      val positions = (rp map (n => (n.x,n.y)))
-      for ((rp2,rpn2) <- pathNodes) {
-          val positions2 = (rp2 map (n => (n.x,n.y)))
-          val minD =
-          (positions map { n =>
-            (positions2 map { n2 =>
-              Matcher.distance(n,n2)
-            }).min
-          }).min
-          if (minD < queryDistance) {
-            withTx{
-              implicit neo =>
-                rpn --> "CLOSE" --> rpn2
-            }
-          }
-        }
+        close.push((qpn, qpn2))
       }
     }
 
+    // Maps List of Neo4j nodes to a "SuperNode" representing that particular path
+    val pathNodes:HashMap[List[Node], Node] = realPaths.map(kv => (kv._1._2.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle()),kv._2))
+    val mm = new HashMap[(Double,Double), Set[Node]] with MultiMap[(Double,Double), Node]
+    for ((rp,rpn) <- pathNodes) {
+      mm.addBinding((rp.head.x,rp.head.y),rpn)
+    }
+    val tree = KDTree.fromSeq(mm.keySet.toList)
+    for ((rp,rpn) <- pathNodes) {
+      val point = (rp.head.x,rp.head.y)
+      for (rpn2 <- mm(point)) {
+        close.push((rpn,rpn2))
+      }
+      val points = tree.findNearest(point,DENSITY)
+      for (otherPoint <- points; rpn2 <- mm(otherPoint)) {
+        close.push((rpn,rpn2))
+      }
+    }
+    withTx {
+      implicit neo =>
+        for ((rpn,rpn2) <- close) {
+          rpn --> "CLOSE"  --> rpn2
+       }
+    }
+  }
 
   /*
    * Prunes kpartite graph by removing nodes that do not have edges to
@@ -558,6 +562,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
    */
   def prune(kpg:Matcher.KPartiteGraph, candidatePaths: Map[List[GraphNode], List[GraphPath]])
   {
+    println("PRUNING")
     val queryPaths:HashMap[List[GraphNode],Node] = kpg._1
     val realPaths:HashMap[(Node,GraphPath),Node] = kpg._2
     val allPaths:List[GraphPath] = candidatePaths.values.flatten.toList
@@ -585,8 +590,8 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
                 var empty = (joins intersect joinable).isEmpty && !(joins.isEmpty && joinable.isEmpty)
                 if (empty) {
                   pruneStat(rType.name())  = pruneStat.getOrElse(rType.name(),0) + 1
-                  pruned = true;
-                  withTx {
+                pruned = true;
+                 withTx {
                     implicit neo =>
                     rpn.getRelationships().map(r => r.delete());
                     rpn.delete();
@@ -640,10 +645,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   }
   private def generateShapefile(candidatePaths: Map[List[GraphNode], List[GraphPath]]) = {
     val finalPaths:List[GraphPath] = candidatePaths.values.toList.flatten
-    val finalPathsFiltered =
-    finalPaths.filter(p =>
-      angleBetween(nodeIndex.get("key",p.road.toString).getSingle().attr.angle, angleL, angleH))
-    val finalNodes = graphPaths2NodeSet(finalPathsFiltered)
+    val finalNodes = graphPaths2NodeSet(finalPaths)
     val Place = "id".of[String] ~ "the_geom".of[Point]
     forceXYMode()
     val lonlat = lookupEPSG("EPSG:4326").get

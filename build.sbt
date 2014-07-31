@@ -26,6 +26,7 @@ scalaVersion := "2.10.3"
 
 resolvers += "neo4j-public-repository" at "http://m2.neo4j.org/content/groups/everything/"
 
+
 resolvers += Resolver.sonatypeRepo("public")
 
 resolvers += Resolver.sonatypeRepo("snapshots")
@@ -38,7 +39,9 @@ libraryDependencies ++= Seq(
   "eu.fakod" % "neo4j-scala_2.10" % "0.3.1-SNAPSHOT",
   "com.typesafe.slick" %% "slick" % "2.0.2",
   "org.json4s" %% "json4s-native" % "3.2.9",
-  "com.github.scopt" %% "scopt" % "3.2.0")
+  "com.github.scopt" %% "scopt" % "3.2.0",
+  "com.thesamet" %% "kdtree" % "1.0.1"
+)
 
 libraryDependencies += "org.mongodb" %% "casbah" % "2.7.2"
 
