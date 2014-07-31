@@ -8,7 +8,7 @@ from collections import defaultdict
 import json
 
 PIPE_WIDTH = 20 # Max width of the pipe in meters.
-ANGLE_TOLERANCE = 3,14/8 # Angle of tolerance that we can call straight for determining T intersections.
+ANGLE_TOLERANCE = pi/8 # Angle of tolerance that we can call straight for determining T intersections.
 DEGREE = 1 # Field of the intersections record that contains degree.
 OVERLAP_THRESHOLD = 10 # Number of meters the centroids of two buildings have to be apart to count as non-overlapping.
 
@@ -205,9 +205,9 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
     fe.write(output_edges)
     fe.close()
     node_data = []
-    for i, centroid in enumerate(building_centroids):
+    for i, centroid in enumerate(building_centroids.T):
         node_data.append({'key': i,\
-                'attr': { 'length': -1,\
+                'attr': {'length': -1,\
                     'height': -1,\
                     'angle': 0,\
                     'roadClass': -1,\
@@ -217,7 +217,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
                 'y': centroid[1]})
     for i, intersection in enumerate(intersections_utm):
         node_data.append({'key': intersection_base + i,\
-                'attr': { 'length': -1,\
+                'attr': {'length': -1,\
                     'height': -1,\
                     'angle': 0,\
                     'roadClass': -1,\
