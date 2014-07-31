@@ -94,6 +94,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
     for segment in segment_to_buildings:
         buildings = segment_to_buildings[segment]
         buildings.sort(key=lambda x: x[1])
+        prune_interior_buildings(buildings, segment, buildings_utm)
         for i in range(1, len(buildings)-1):
             c = buildings[i] # c for current
             p = buildings[i-1] # p for previous
@@ -181,10 +182,27 @@ def shares_intersection(seg1, seg2, intersections):
             return True
     return False
 
-def merge_pipes():
-    pass
-
-
+def prune_interior_buildings(buildings, segment, building_db):
+    # If a building is somehow caught, but is behind another building we get rid of it.
+    # To do this we see if two buildings that are adjacent to each other have footprints
+    # that overlap in the projection down to the segment.
+    # The building whose centroid is closer to the road wins and the other the removed.
+    to_remove = set()
+    for i in range(len(buildings) - 1):
+        poly_a = building_db[buildings[i][0]]
+        poly_b = building_db[buildings[i+1][0]]
+        # We find the rightmost point in poly_a and the leftmost in poly_b, along the direction of the segment.
+        base = np.array(segment[0])
+        segment_vector = np.array(segment[1]) - base
+        rightmost = max(map(lambda x: (np.array(x) - base).dot(segment_vector), poly_a))
+        leftmost = min(map(lambda x: (np.array(x) - base).dot(segment_vector), poly_b))
+        if leftmost < rightmost:
+            if buildings[i][2] < buildings[i+1][2]:
+                to_remove.add(buildings[i+1])
+            elif buildings[i][2] > buildings[i+1][2]:
+                to_remove.add(buildings[i])
+    for item in to_remove:
+        buildings.remove(item)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Links buildings and intersections for the database.')
