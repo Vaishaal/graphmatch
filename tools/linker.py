@@ -200,7 +200,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
         wp.save(visualization_sf_path + '.points.shp')
 
     # Output json files.
-    output_edges = json.dump(edges)
+    output_edges = json.dumps(edges)
     fe = open('db.edges.json', 'w+')
     fe.write(output_edges)
     fe.close()
@@ -210,7 +210,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
                 'attr': { 'length': -1,\
                     'height': -1,\
                     'angle': 0,\
-                    'roadClass': -1\
+                    'roadClass': -1,\
                     'degree': -1,\
                     'nodeType': BUILDING},\
                 'x': centroid[0],\
@@ -220,12 +220,12 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
                 'attr': { 'length': -1,\
                     'height': -1,\
                     'angle': 0,\
-                    'roadClass': -1\
+                    'roadClass': -1,\
                     'degree': irecords[i][DEGREE],\
                     'nodeType': INTERSECTION},\
                 'x': intersection[0],\
                 'y': intersection[1]})
-    output_nodes = json.dump(node_data)
+    output_nodes = json.dumps(node_data)
     fn = open('db.nodes.json', 'w+')
     fn.write(output_nodes)
     fn.close()
