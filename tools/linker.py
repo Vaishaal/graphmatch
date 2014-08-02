@@ -72,6 +72,10 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
     for i, building in enumerate(building_centroids.T):
         if i % 100 == 0:
             print i
+        if i < 50:
+            continue
+        elif i > 56:
+            break
         candidate_segments = []
         for road_id in road_to_segments:
             segments = road_to_segments[road_id]
@@ -114,7 +118,13 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
     right_merge = {} # We don't need any additional data structures here because ...
     for segment in segment_to_buildings:
         buildings = segment_to_buildings[segment]
+        if segment[0] in intersection_id:
+            print "left: %d" % intersection_id[segment[0]]
+        if segment[1] in intersection_id:
+            print "right: %d" % intersection_id[segment[1]]
         buildings.sort(key=lambda x: x[1])
+        print buildings
+        print "-----"
         prune_interior_buildings(buildings, segment, buildings_utm)
         for i in range(1, len(buildings)-1):
             c = buildings[i] # c for current
