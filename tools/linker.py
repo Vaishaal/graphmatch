@@ -195,7 +195,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
 
     # Sanitize edges: remove duplicates.
     for key in edges:
-        edges[key] = list(set(edge[key]))
+        edges[key] = list(set(edges[key]))
 
     # Generate visualization shapefiles.
     if visualization_sf_path != '':
@@ -212,20 +212,21 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
                     point_b = intersections_utm[b - intersection_base]
                 elif b < intersection_base:
                     point_b = building_centroids[:,b]
-                w.poly(shapeType=shapefile.POLYLINE, parts=[[utm_to_latlon(point_a), utm_to_latlon(point_b)]])
+                w.poly(shapeType=shapefile.POLYLINE, parts=[[utm_to_lonlat(point_a), utm_to_lonlat(point_b)]])
                 w.record(counter)
                 counter += 1
         w.save(visualization_sf_path + '.lines.shp')
         wp = shapefile.Writer(shapefile.POINT)
         wp.field('ID', 'N', '4')
         for i, centroid in enumerate(building_centroids.T):
-            centroid = utm_to_latlon(centroid)
+            centroid = utm_to_lonlat(centroid)
             wp.point(centroid[0], centroid[1])
             wp.record(i)
         for intersection in intersection_id:
-            intersection = utm_to_latlon(centroid)
+            int_id = intersection_id[intersection]
+            intersection = utm_to_lonlat(intersection)
             wp.point(intersection[0], intersection[1])
-            wp.record(intersection_id[intersection])
+            wp.record(int_id)
         wp.save(visualization_sf_path + '.points.shp')
 
     # Output json files.
@@ -266,9 +267,9 @@ def lonlat_to_utm(point):
     output = utm.conversion.from_latlon(point[1], point[0]) # Swap indices for lonlat.
     return [output[0], output[1]]
 
-def utm_to_latlon(point):
-    output = utm.to_latlon(point[0], point[1], 37, 'N')
-    return list(output)
+def utm_to_lonlat(point):
+    output = utm.to_latlon(point[0], point[1], 37, 'S')
+    return [output[1], output[0]]
 
 def compute_centroid(polygon):
     # Implements the formula on the wikipedia page.
