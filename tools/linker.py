@@ -6,8 +6,9 @@ from scipy.spatial import *
 import utm
 from collections import defaultdict
 import json
+import pickle
 
-PIPE_WIDTH = 20 # Max width of the pipe in meters.
+PIPE_WIDTH = 25 # Max width of the pipe in meters.
 ANGLE_TOLERANCE = pi/8 # Angle of tolerance that we can call straight for determining T intersections.
 DEGREE = 1 # Field of the intersections record that contains degree.
 OVERLAP_THRESHOLD = 10 # Number of meters the centroids of two buildings have to be apart to count as non-overlapping.
@@ -59,23 +60,25 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             tee_tips[tuple(road[-1])] = road[-2]
 
     # Breaks roads down into segments. Fills in dictionary for T intersections to the adjacent road nodes.
-    road_to_segments = defaultdict(lambda: [])
+    road_to_segments = defaultdict(list)
     for road_id, road in enumerate(roads_utm):
         for i in range(len(road) - 1):
             road_to_segments[road_id].append((tuple(road[i]), tuple(road[i+1])))
             road_to_segments[road_id].append((tuple(road[i+1]), tuple(road[i])))
 
     # Maps a road segment to a list of nearby buildings.
-    segment_to_buildings = defaultdict(lambda: [])
-    building_to_segments = defaultdict(lambda: [])
+    segment_to_buildings = defaultdict(list)
+    building_to_segments = defaultdict(list)
     rot90 = np.matrix([[0, -1], [1, 0]])
     for i, building in enumerate(building_centroids.T):
         if i % 100 == 0:
             print i
+            """
         if i < 50:
             continue
         elif i > 56:
             break
+            """
         candidate_segments = []
         for road_id in road_to_segments:
             segments = road_to_segments[road_id]
@@ -113,18 +116,22 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
                 last_len = len(candidate_segments)
 
     # Create edges.
-    edges = defaultdict(lambda: [])
-    left_merge = {} # If one of the ends of a segment isn't an intersection, it needs to get stithced to another segment.
-    right_merge = {} # We don't need any additional data structures here because ...
+    edges = defaultdict(list)
+    left_merge = defaultdict(list) # If one of the ends of a segment isn't an intersection, it needs to get stithced to another segment.
+    right_merge = defaultdict(list) # We don't need any additional data structures here because ...
     for segment in segment_to_buildings:
         buildings = segment_to_buildings[segment]
+        """
         if segment[0] in intersection_id:
-            print "left: %d" % intersection_id[segment[0]]
+            if intersection_id[segment[0]] == 3038:
+                print "left: %d" % intersection_id[segment[0]]
+                print buildings
         if segment[1] in intersection_id:
-            print "right: %d" % intersection_id[segment[1]]
+            if intersection_id[segment[1]] == 3034:
+                print "right: %d" % intersection_id[segment[1]]
+                print buildings
+        """
         buildings.sort(key=lambda x: x[1])
-        print buildings
-        print "-----"
         prune_interior_buildings(buildings, segment, buildings_utm)
         for i in range(1, len(buildings)-1):
             c = buildings[i] # c for current
@@ -138,7 +145,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             branch_vector = np.array(other_tip) - np.array(segment[0])
             determination = np.cross(branch_vector, seg_vector)
             if determination > 0:
-                left_merge[segment[0]] = (buildings[0], segment[-1])
+                left_merge[segment[0]].append((buildings[0][0], segment)) # Only need building ID
                 if len(buildings) > 1:
                     edges[str(buildings[0][0])].append(buildings[1][0])
             else:
@@ -150,7 +157,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             if len(buildings) > 1:
                 edges[str(buildings[0][0])].append(buildings[1][0])
         else:
-            left_merge[segment[0]] = (buildings[0], segment[-1]) # Segments that need a merge on the left.
+            left_merge[segment[0]].append((buildings[0][0], segment))
 
         if segment[-1] in tees:
             other_tip = tee_tips[segment[-1]]
@@ -158,7 +165,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             branch_vector = np.array(other_tip) - np.array(segment[-1])
             determination = np.cross(seg_vector, branch_vector)
             if determination > 0:
-                right_merge[segment[-1]] = (buildings[-1], segment[-1])
+                right_merge[segment[-1]].append((buildings[-1][0], segment))
                 if len(buildings) > 1:
                     edges[str(buildings[-1][0])].append(buildings[-2][0])
             else:
@@ -170,15 +177,25 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             if len(buildings) > 1:
                 edges[str(buildings[-1][0])].append(buildings[-2][0])
         else:
-            right_merge[segment[-1]] = (buildings[-1], segment[0]) # Segments that need a merge on the left.
+            right_merge[segment[-1]].append((buildings[-1][0], segment)) # Segments that need a merge on the left.
+
+    pkl = open('debug.pkl', 'w')
+    pickle.dump([dict(left_merge), dict(right_merge), dict(edges)], pkl)
 
     for point in left_merge:
         if point in right_merge:
-            right, other_r = left_merge[point]
-            left, other_l = right_merge[point]
-            if other_r != other_l: # To prune out cul-de-sacs
-                edges[str(right[0])].append(left[0])
-                edges[str(left[0])].append(right[0])
+            for right, left_segment in left_merge[point]:
+                for left, right_segment in right_merge[point]:
+                    if set(left_segment) != set(right_segment): # To prune out cul-de-sacs
+                        angle = get_angle(np.array(left_segment[1]) - np.array(left_segment[0]),\
+                                np.array(right_segment[1]) - np.array(right_segment[0]))
+                        if angle < ANGLE_TOLERANCE:
+                            edges[str(right)].append(left)
+                            edges[str(left)].append(right)
+
+    # Sanitize edges: remove duplicates.
+    for key in edges:
+        edges[key] = list(set(edge[key]))
 
     # Generate visualization shapefiles.
     if visualization_sf_path != '':
@@ -195,16 +212,18 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
                     point_b = intersections_utm[b - intersection_base]
                 elif b < intersection_base:
                     point_b = building_centroids[:,b]
-                w.poly(shapeType=shapefile.POLYLINE, parts=[[list(point_a), list(point_b)]])
+                w.poly(shapeType=shapefile.POLYLINE, parts=[[utm_to_latlon(point_a), utm_to_latlon(point_b)]])
                 w.record(counter)
                 counter += 1
         w.save(visualization_sf_path + '.lines.shp')
         wp = shapefile.Writer(shapefile.POINT)
         wp.field('ID', 'N', '4')
         for i, centroid in enumerate(building_centroids.T):
+            centroid = utm_to_latlon(centroid)
             wp.point(centroid[0], centroid[1])
             wp.record(i)
         for intersection in intersection_id:
+            intersection = utm_to_latlon(centroid)
             wp.point(intersection[0], intersection[1])
             wp.record(intersection_id[intersection])
         wp.save(visualization_sf_path + '.points.shp')
@@ -246,6 +265,10 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
 def lonlat_to_utm(point):
     output = utm.conversion.from_latlon(point[1], point[0]) # Swap indices for lonlat.
     return [output[0], output[1]]
+
+def utm_to_latlon(point):
+    output = utm.to_latlon(point[0], point[1], 37, 'N')
+    return list(output)
 
 def compute_centroid(polygon):
     # Implements the formula on the wikipedia page.
