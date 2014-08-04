@@ -66,18 +66,13 @@ val parser = new scopt.OptionParser[Config]("graphmatch") {
   .action { (x, c) => c.copy(queryNodes = x + ".nodes.json").copy(queryEdges = x +  ".edges.json")}
   .text("Query location")
 
-  opt[String]('d', "dbpath")
+  opt[String]('n', "neo4jpath")
   .action { (x, c) =>  c.copy(dbpath = x)}
   .text("Location of neo4j database ")
 
-  opt[String]("db_nodes_json")
-  .action { (x, c) =>  c.copy(nodejsonpath = x)}
-  .text("Location of json with graph nodes to generate neo4j and mongodb database, by default looks for bg.nodes.json in cwd ")
-
-  opt[String]("db_edges_json")
-  .action { (x, c) =>  c.copy(edgejsonpath = x)}
-  .text("Location of json with graph edges to generate neo4j and mongodb database, by default looks for bg.edges.json in cwd ")
-
+  opt[String]("db")
+  .action { (x, c) => c.copy(nodejsonpath = x + ".nodes.json").copy(edgejsonpath = x +  ".edges.json")}
+  .text("location of db json")
 
 }
 
