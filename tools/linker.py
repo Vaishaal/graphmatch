@@ -18,12 +18,27 @@ BUILDING = 0
 INTERSECTION = 1
 ROAD = 2
 
+# Road shapefile record fields.
+ROAD_ID = 0
+CLASS = 1
+CLASS_MAP = {'service': 0,
+        'residential': 1,
+        'unclassified': 2,
+        'tertiary': 3,
+        'secondary': 4,
+        'primary': 5,
+        'trunk': 6,
+        'motorway': 7,
+        'track': 8,
+        'primary_link': 9}
+
 def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_path):
     # Read in the shapefiles.
     build_sf = shapefile.Reader(building_sf_path) # Polygons.
     int_sf = shapefile.Reader(intersection_sf_path) # Points.
     road_sf = shapefile.Reader(road_sf_path) # Series of line segments.
     irecords = int_sf.records()
+    rrecords = road_sf.records()
 
     # Convert everything to UTM.
     buildings_utm = map(lambda building: [lonlat_to_utm(corner) for corner in building.points], build_sf.shapes())
@@ -60,28 +75,32 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             tee_tips[tuple(road[-1])] = road[-2]
 
     # Breaks roads down into segments. Fills in dictionary for T intersections to the adjacent road nodes.
+    # Makes map from segment to OSM id.
     road_to_segments = defaultdict(list)
-    for road_id, road in enumerate(roads_utm):
+    segment_to_osm = {}
+    for road_index, road in enumerate(roads_utm):
         for i in range(len(road) - 1):
-            road_to_segments[road_id].append((tuple(road[i]), tuple(road[i+1])))
-            road_to_segments[road_id].append((tuple(road[i+1]), tuple(road[i])))
+            road_to_segments[road_index].append((tuple(road[i]), tuple(road[i+1])))
+            road_to_segments[road_index].append((tuple(road[i+1]), tuple(road[i])))
+            segment_to_osm[(tuple(road[i]), tuple(road[i+1]))] = rrecords[road_index][ROAD_ID]
+            segment_to_osm[(tuple(road[i+1]), tuple(road[i]))] = rrecords[road_index][ROAD_ID]
 
-    # Maps a road segment to a list of nearby buildings.
+    # Maps a road segment and a whole road to a list of nearby buildings.
     segment_to_buildings = defaultdict(list)
-    building_to_segments = defaultdict(list)
+    road_to_buildings = defaultdict(list)
     rot90 = np.matrix([[0, -1], [1, 0]])
     for i, building in enumerate(building_centroids.T):
         if i % 100 == 0:
             print i
             """
-        if i < 50:
+        if i < 638:
             continue
-        elif i > 56:
+        elif i > 665:
             break
             """
         candidate_segments = []
-        for road_id in road_to_segments:
-            segments = road_to_segments[road_id]
+        for road_index in road_to_segments:
+            segments = road_to_segments[road_index]
             for segment in segments:
                 segment_vector = np.matrix(segment[1]) - np.matrix(segment[0])
                 segment_length = np.linalg.norm(segment_vector)
@@ -97,6 +116,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
         candidate_segments.sort(key=lambda x: x[1])
         accepted_segments = [candidate_segments[0][0]]
         last_accepted = candidate_segments[0][0]
+        road_to_buildings[segment_to_osm[last_accepted]].append(i)
         # Store the building index and distance ALONG segment as well as distance FROM segment.
         segment_to_buildings[last_accepted].append((i, candidate_segments[0][2], candidate_segments[0][1])) 
         # Add all segments that meet the crtieria.
@@ -106,6 +126,7 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             for seg in candidate_segments:
                 if shares_intersection(last_accepted, seg[0], intersection_set):
                     last_accepted = seg[0]
+                    road_to_buildings[segment_to_osm[last_accepted]].append(i)
                     accepted_segments.append(last_accepted)
                     segment_to_buildings[last_accepted].append((i, seg[2], seg[1]))
                     candidate_segments.remove(seg)
@@ -133,12 +154,15 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
         """
         buildings.sort(key=lambda x: x[1])
         prune_interior_buildings(buildings, segment, buildings_utm)
+        # First handle all the buildlings in the middle of the segment.
         for i in range(1, len(buildings)-1):
             c = buildings[i] # c for current
             p = buildings[i-1] # p for previous
             n = buildings[i+1] # n for next
             edges[str(buildings[i][0])].append(buildings[i-1][0])
             edges[str(buildings[i][0])].append(buildings[i+1][0])
+
+        # Process the leftmost building of the segment.
         if segment[0] in tees:
             other_tip = tee_tips[segment[0]]
             seg_vector = np.array(segment[-1]) - np.array(segment[0])
@@ -159,12 +183,13 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
         else:
             left_merge[segment[0]].append((buildings[0][0], segment))
 
+        # Process the rightmost building of the segment.
         if segment[-1] in tees:
             other_tip = tee_tips[segment[-1]]
             seg_vector = np.array(segment[0]) - np.array(segment[-1])
             branch_vector = np.array(other_tip) - np.array(segment[-1])
             determination = np.cross(seg_vector, branch_vector)
-            if determination > 0:
+            if determination > 0: # Tells that we are on the top side of the T for this T intersection.
                 right_merge[segment[-1]].append((buildings[-1][0], segment))
                 if len(buildings) > 1:
                     edges[str(buildings[-1][0])].append(buildings[-2][0])
@@ -179,8 +204,13 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
         else:
             right_merge[segment[-1]].append((buildings[-1][0], segment)) # Segments that need a merge on the left.
 
+        # Even for the two buildings on the far ends, we always add the edges towards the middle of the segment.
+        if len(buildings) > 1:
+            edges[str(buildings[0][0])].append(buildings[1][0])
+            edges[str(buildings[-1][0])].append(buildings[-2][0])
+
     pkl = open('debug.pkl', 'w')
-    pickle.dump([dict(left_merge), dict(right_merge), dict(edges)], pkl)
+    pickle.dump([dict(segment_to_buildings), dict(left_merge), dict(right_merge), dict(edges)], pkl)
 
     for point in left_merge:
         if point in right_merge:
@@ -192,10 +222,6 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
                         if angle < ANGLE_TOLERANCE:
                             edges[str(right)].append(left)
                             edges[str(left)].append(right)
-
-    # Sanitize edges: remove duplicates.
-    for key in edges:
-        edges[key] = list(set(edges[key]))
 
     # Generate visualization shapefiles.
     if visualization_sf_path != '':
@@ -229,6 +255,16 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             wp.record(int_id)
         wp.save(visualization_sf_path + '.points.shp')
 
+    # Add in road edges AFTER the visualization.
+    for road_id in road_to_buildings:
+        for building in road_to_buildings[road_id]:
+            edges[road_id].append(building)
+            edges[building].append(road_id)
+
+    # Sanitize edges: remove duplicates.
+    for key in edges:
+        edges[key] = list(set(edges[key]))
+
     # Output json files.
     output_edges = json.dumps(edges)
     fe = open('db.edges.json', 'w+')
@@ -255,6 +291,16 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
                     'nodeType': INTERSECTION},\
                 'x': intersection[0],\
                 'y': intersection[1]})
+    for road_attrs in rrecords:
+        node_data.append({'key': road_attrs[ROAD_ID],\
+                'attr': {'length': -1,\
+                    'height': -1,\
+                    'angle': 0,\
+                    'roadClass': CLASS_MAP[road_attrs[CLASS]],\
+                    'degree': -1,\
+                    'nodeType': ROAD},\
+                'x': -1,\
+                'y': -1})
     output_nodes = json.dumps(node_data)
     fn = open('db.nodes.json', 'w+')
     fn.write(output_nodes)
