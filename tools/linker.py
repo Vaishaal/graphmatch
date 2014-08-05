@@ -18,6 +18,9 @@ BUILDING = 0
 INTERSECTION = 1
 ROAD = 2
 
+# Intersection shapefile record fields.
+INTERSECTING_ROADS = 0
+
 # Road shapefile record fields.
 ROAD_ID = 0
 CLASS = 1
@@ -85,6 +88,18 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
             segment_to_osm[(tuple(road[i]), tuple(road[i+1]))] = rrecords[road_index][ROAD_ID]
             segment_to_osm[(tuple(road[i+1]), tuple(road[i]))] = rrecords[road_index][ROAD_ID]
 
+    # Creates a map from OSM road id to a list of OSM roads that intersect it.
+    road_to_intersecting_roads = defaultdict(set)
+    for intersection_attrs in irecords:
+        road_str = intersection_attrs[INTERSECTING_ROADS]
+        intersecting_roads = road_str.split(',')
+        for r1 in intersecting_roads:
+            r1 = int(r1)
+            for r2 in intersecting_roads:
+                r2 = int(r2)
+                if r1 != r2 and r1 != -1 and r2 != -1:
+                    road_to_intersecting_roads[r1].add(r2)
+
     # Maps a road segment and a whole road to a list of nearby buildings.
     segment_to_buildings = defaultdict(list)
     road_to_buildings = defaultdict(list)
@@ -124,7 +139,9 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
         last_len = len(candidate_segments)
         while True:
             for seg in candidate_segments:
-                if shares_intersection(last_accepted, seg[0], intersection_set):
+                last_osm = segment_to_osm[last_accepted]
+                next_osm = segment_to_osm[seg[0]]
+                if next_osm in road_to_intersecting_roads[last_osm]:
                     last_accepted = seg[0]
                     road_to_buildings[segment_to_osm[last_accepted]].append(i)
                     accepted_segments.append(last_accepted)
@@ -259,7 +276,31 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
     for road_id in road_to_buildings:
         for building in road_to_buildings[road_id]:
             edges[str(road_id)].append(building)
-            edges[str(building)].append(road_id)
+
+    # Visualize road nodes.
+    if visualization_sf_path != '':
+        wr = shapefile.Writer(shapefile.POLYLINE)
+        wr.field('ID', 'N', '10')
+        wrp = shapefile.Writer(shapefile.POINT)
+        wrp.field('ID', 'N', '10')
+        for index, road in enumerate(road_sf.shapes()):
+            x = 0
+            y = 0
+            for point in road.points:
+                x += point[0]
+                y += point[1]
+            x = x/len(road.points)
+            y = y/len(road.points)
+            wrp.point(x,y)
+            wrp.record(rrecords[index][ROAD_ID])
+            for building in edges[str(rrecords[index][ROAD_ID])]:
+                tmp = (building_centroids.T)[building]
+                if len(tmp) > 0:
+                    wr.poly(shapeType=shapefile.POLYLINE, parts=[[utm_to_lonlat(tmp), [x,y]]])
+                    wr.record(0)
+        wr.save(visualization_sf_path + '.road_edges.shp')
+        wrp.save(visualization_sf_path + '.road_nodes.shp')
+
 
     # Sanitize edges: remove duplicates.
     for key in edges:
