@@ -8,7 +8,7 @@ from collections import defaultdict
 import json
 import pickle
 
-PIPE_WIDTH = 30 # Max width of the pipe in meters.
+PIPE_WIDTH = 20 # Max width of the pipe in meters.
 ANGLE_TOLERANCE = pi/8 # Angle of tolerance that we can call straight for determining T intersections.
 DEGREE = 1 # Field of the intersections record that contains degree.
 OVERLAP_THRESHOLD = 5 # Number of meters the centroids of two buildings have to be apart to count as non-overlapping.
@@ -375,15 +375,6 @@ def compute_centroid(polygon):
 
 def get_angle(u, v):
     return abs(float(np.arccos((u/np.linalg.norm(u)).dot(v/np.linalg.norm(v)))))
-
-def shares_intersection(seg1, seg2, intersections):
-    if tuple(seg1[0]) in intersections or tuple(seg2[0]) in intersections or tuple(seg1[1]) in intersections or tuple(seg2[1]) in intersections:
-        if seg1[0] == seg2[0] or\
-            seg1[1] == seg2[0] or\
-            seg1[0] == seg2[1] or\
-            seg1[1] == seg2[1]:
-            return True
-    return False
 
 def prune_interior_buildings(buildings, segment, building_db):
     # If a building is somehow caught, but is behind another building we get rid of it.
