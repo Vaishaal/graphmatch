@@ -8,10 +8,10 @@ from collections import defaultdict
 import json
 import pickle
 
-PIPE_WIDTH = 25 # Max width of the pipe in meters.
+PIPE_WIDTH = 30 # Max width of the pipe in meters.
 ANGLE_TOLERANCE = pi/8 # Angle of tolerance that we can call straight for determining T intersections.
 DEGREE = 1 # Field of the intersections record that contains degree.
-OVERLAP_THRESHOLD = 10 # Number of meters the centroids of two buildings have to be apart to count as non-overlapping.
+OVERLAP_THRESHOLD = 5 # Number of meters the centroids of two buildings have to be apart to count as non-overlapping.
 
 # Matcher node types.
 BUILDING = 0
@@ -258,8 +258,8 @@ def link(building_sf_path, intersection_sf_path, road_sf_path, visualization_sf_
     # Add in road edges AFTER the visualization.
     for road_id in road_to_buildings:
         for building in road_to_buildings[road_id]:
-            edges[road_id].append(building)
-            edges[building].append(road_id)
+            edges[str(road_id)].append(building)
+            edges[str(building)].append(road_id)
 
     # Sanitize edges: remove duplicates.
     for key in edges:
