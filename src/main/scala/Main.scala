@@ -100,7 +100,7 @@ implicit def Node2GraphNode(n:Node):GraphNode = {
                 roadClass=n.getProperty("roadClass").asInstanceOf[Int],
                 degree=n.getProperty("degree").asInstanceOf[Int],
                 angle=n.getProperty("angle").asInstanceOf[Double])
-    val node = GraphNode(key=n.getProperty("key").asInstanceOf[Long],
+    val node = GraphNode(key=n.getProperty("key").asInstanceOf[String],
                          x=n.getProperty("x").asInstanceOf[Double],
                          y=n.getProperty("y").asInstanceOf[Double],
                          attr=attrs)
@@ -113,10 +113,10 @@ implicit def Attribute2DefiniteAttribute(a:Attributes):DefiniteAttributes = {
 }
 
 // Converts a GraphPath to List of ints
-implicit def GraphPath2NodeKeyList(p:GraphPath):List[Long] = {
+implicit def GraphPath2NodeKeyList(p:GraphPath):List[String] = {
   val pathLookup = db("pathLookup")
   val po = MongoDBObject("_id" -> p.index)
-  val path = pathLookup.findOne(po).map(_.getAs[List[Long]]("path")).flatten.getOrElse(Nil)
+  val path = pathLookup.findOne(po).map(_.getAs[List[String]]("path")).flatten.getOrElse(Nil)
   path
 }
 

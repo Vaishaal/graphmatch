@@ -91,7 +91,7 @@ object Matcher {
     val nodes_json = scala.io.Source.fromFile(queryNodes).mkString
     val edges_json = scala.io.Source.fromFile(queryEdges).mkString
     val nodes = Serialization.read[List[GraphNode]](nodes_json)
-    val edges = Serialization.read[Map[String,List[Int]]](edges_json)
+    val edges = Serialization.read[Map[String,List[String]]](edges_json)
     val matcher = new Matcher(nodes, edges, 0.5, dbPath)
     // Decompose the query into all possible paths of a given length.
     val paths = matcher.getPaths(maxDepth)
@@ -100,8 +100,9 @@ object Matcher {
       (path filter {node: GraphNode =>
         node.attr.nodeType != Matcher.INTERSECTION
       } map {node:GraphNode =>
-        (edges(node.key.toString) filter { edge:Int =>
-          matcher.nodes(edge).attr.nodeType == Matcher.ROAD
+        (edges(node.key.toString) filter { edge:String =>
+          val otherNode:GraphNode = matcher.nodes(edge)
+          otherNode.attr.nodeType == Matcher.ROAD
         })
       }).flatten.toSet.size == 1
     }
@@ -112,24 +113,23 @@ object Matcher {
     val roadPaths =
     coveringPaths map {path =>
       (path map {node:GraphNode =>
-        (edges(node.key.toString) filter{ edge:Int =>
+        (edges(node.key.toString) filter{ edge:String =>
           matcher.nodes(edge).attr.nodeType == Matcher.ROAD
         }).head
       }).toSet.toList.head
     }
     // Map from  path to road
-    val roadMap:Map[List[GraphNode], Int] = (coveringPaths zip roadPaths).toMap
+    val roadMap:Map[List[GraphNode], String] = (coveringPaths zip roadPaths).toMap
     matcher.roadMap  = roadMap;
     // Use the union of all possible paths to get preliminary candidate nodes.
     val prelimNodes = matcher.nodesByPath(coveringPaths)
     // Compute node level statistics and get candidate nodes.
     val candidateNodes = matcher.getCandidateNodes(prelimNodes)
-    println(candidateNodes)
     // Compute path level statistics and get candidate paths.
     val candidatePaths:Map[List[GraphNode], List[GraphPath]] = matcher.getCandidatePaths(candidateNodes, coveringPaths)
     println("Candidate paths " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
     val kpg:KPartiteGraph = matcher.createKPartite(candidatePaths);
-    matcher.addCloseEdges(kpg);
+    //matcher.addCloseEdges(kpg);
     matcher.addRoadEdges(kpg);
     matcher.prune(kpg, candidatePaths);
     val newCandidatePaths = matcher.kPartite2CandidatePaths(kpg, candidatePaths);
@@ -138,7 +138,7 @@ object Matcher {
   }
 }
 
-class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637", val angleL:Double=357.287, val angleH:Double=194.614, val mainRoad:Int=(21)) // scalastyle:ignore
+class Matcher (nodeList: List[GraphNode], edges:Map[String,List[String]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637", val angleL:Double=357.287, val angleH:Double=194.614, val mainRoad:Int=(-1)) // scalastyle:ignore
   extends Neo4jWrapper
   with EmbeddedGraphDatabaseServiceProvider
   with Neo4jIndexProvider
@@ -153,7 +153,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   ShutdownHookThread {
     shutdown(ds)
   }
-  val DENSITY = 3
+  val DENSITY = 50
   val DEFAULTCARDINALITY = 100
   val nodeIndex = getNodeIndex("keyIndex").get
   val roadIndex = getNodeIndex("kPartiteRoadIndex").get
@@ -163,9 +163,9 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   val path_lookup_col = db("pathLookup")
   val road_col = db("roads")
   val r_road_col = db("rRoads")
-  var roadMap:Map[List[GraphNode], Int] = Map.empty
+  var roadMap:Map[List[GraphNode], String] = Map.empty
   def neo4jStoreDir = dbPath
-  val nodes = MMap[Long, GraphNode]()
+  val nodes = MMap[String, GraphNode]()
   for (node <- nodeList) {
     nodes(node.key) = node
   }
@@ -190,9 +190,9 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       (x: (List[GraphNode], Double), y: (List[GraphNode], Double)) => x._2 > y._2)
     val pathsIter = sortedPaths.toIterator
     val coveringPaths = ListBuffer[List[GraphNode]]()
-    val covered = Set[Set[Long]]()
+    val covered = Set[Set[String]]()
     var target = this.nodes.keySet.map(x => (for (e <- edges(this.nodes(x).key.toString))
-      yield Set[Long](this.nodes(x).key, e)).toSet).foldLeft(covered.empty)((x,y) => x.union(y))
+      yield Set[String](this.nodes(x).key, e)).toSet).foldLeft(covered.empty)((x,y) => x.union(y))
       .filter(_.map(this.nodes(_).attr.nodeType != Matcher.ROAD).reduce((x,y) => x && y))
 
     while (covered != target && pathsIter.hasNext) {
@@ -201,7 +201,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       var prev = nextPath._1.head.key
       for (node <- nextPath._1.tail) {
         val curr = node.key
-        if (!covered.contains(Set[Long](prev, curr))) {
+        if (!covered.contains(Set[String](prev, curr))) {
           include = true
         }
         prev = curr
@@ -209,7 +209,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       if (include) {
         coveringPaths += nextPath._1
         val nodes = nextPath._1.map(_.key)
-        covered ++= (nodes.drop(1),nodes.dropRight(1)).zipped.toList.map(x => Set[Long](x._1,x._2))
+        covered ++= (nodes.drop(1),nodes.dropRight(1)).zipped.toList.map(x => Set[String](x._1,x._2))
       }
     }
     coveringPaths.toList
@@ -237,12 +237,12 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
      val o = MongoDBObject("_id" -> kJson)
      val result = path_col.findOne(o)
      val paths = result.map(_.getAs[List[Int]]("paths")).flatten.getOrElse(Nil)
-     paths map (pi => GraphPath(pi, path_lookup_col.findOne(MongoDBObject("_id" -> pi)).map(_.getAs[Long]("road")).flatten.getOrElse(-1)))
+     paths map (pi => GraphPath(pi, path_lookup_col.findOne(MongoDBObject("_id" -> pi)).map(_.getAs[String]("road")).flatten.getOrElse("-1")))
   }
 
   private def getPaths (maxLength: Int) : List[List[GraphNode]] = {
 
-    val visited = MMap[Long, Boolean]().withDefaultValue(false)
+    val visited = MMap[String, Boolean]().withDefaultValue(false)
     val paths = ListBuffer[ListBuffer[GraphNode]]()
     for ((key, node) <- this.nodes) {
       if (node.attr.nodeType != Matcher.ROAD) {
@@ -256,7 +256,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     output.toList
   }
 
-  private def getPathsHelper (maxLength: Int, current: GraphNode, depth: Int, visited: MMap[Long, Boolean])
+  private def getPathsHelper (maxLength: Int, current: GraphNode, depth: Int, visited: MMap[String, Boolean])
     : ListBuffer[ListBuffer[GraphNode]] = {
     var paths = ListBuffer[ListBuffer[GraphNode]]()
     if (depth < maxLength && edges.contains(current.key.toString) ) {
@@ -354,10 +354,10 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
    * Node and Path Level Pruning Methods *
    ***************************************/
 
-  private def nodesByPath(coveringPaths: List[List[GraphNode]]) : MMap[GraphNode, ListBuffer[Long]] = {
+  private def nodesByPath(coveringPaths: List[List[GraphNode]]) : MMap[GraphNode, ListBuffer[String]] = {
     // Returns the list of node IDs in the database that are in some
     // path that corresponds to a set cover path.
-    val prelimNodes = MMap[GraphNode, ListBuffer[Long]]()
+    val prelimNodes = MMap[GraphNode, ListBuffer[String]]()
     for (path <- coveringPaths) {
       val fromDB = pIndex(path, this.minProb)
       for (prelimPath <- fromDB) {
@@ -365,7 +365,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
           if (prelimNodes.contains(path(i))) {
             prelimNodes(path(i)) += prelimPath(i)
           } else {
-            prelimNodes(path(i)) = ListBuffer[Long](prelimPath(i))
+            prelimNodes(path(i)) = ListBuffer[String](prelimPath(i))
           }
         }
       }
@@ -373,10 +373,10 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     prelimNodes
   }
 
-  private def getCandidateNodes(prelim: MMap[GraphNode, ListBuffer[Long]]) : List[Long] = {
+  private def getCandidateNodes(prelim: MMap[GraphNode, ListBuffer[String]]) : List[String] = {
     // Returns the list of node IDs in the database that are the
     // remaining nodes from the node level pruning in the paper.
-    val output = ListBuffer[Long]()
+    val output = ListBuffer[String]()
     val ROADCLASS = 3
     for ((queryNode, candidates) <- prelim) {
       val queryNeighborStats = MMap[Attributes, Int]().withDefaultValue(0)
@@ -401,8 +401,8 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     output.toList
   }
 
-  private def getNodeNeighborInfo(nodeId: Long) : HashMap[Attributes,Long] = {
-    val neighborMap = new HashMap[Attributes,Long]
+  private def getNodeNeighborInfo(nodeId: String) : HashMap[Attributes,Int] = {
+    val neighborMap = new HashMap[Attributes,Int]
     val nodeIndex = getNodeIndex("keyIndex").get
     val searchKey = 100
     val obj = nodeIndex.get("key", nodeId)
@@ -422,7 +422,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
                      Direction.OUTGOING
                      ).toList
       for (n <- neighbors) {
-        neighborMap(n.attr) = neighborMap.getOrElse(n.attr,0.toLong) + 1
+        neighborMap(n.attr) = neighborMap.getOrElse(n.attr,0) + 1
       }
     } else {
       assert(false, "Queried nodeId that does not exist!")
@@ -430,7 +430,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     neighborMap
   }
 
-  private def getCandidatePaths(candidateNodes: List[Long], coveringPaths: List[List[GraphNode]])
+  private def getCandidatePaths(candidateNodes: List[String], coveringPaths: List[List[GraphNode]])
     : Map[List[GraphNode], List[GraphPath]] = {
     // Returns a map from the paths in the set cover to the list of paths (by node ID)
     // in the database that correspond to the set cover paths, after path level pruning.
@@ -440,7 +440,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       val passed = ListBuffer[GraphPath]()
       for (path <- prelim) {
         val rightDirection = angleBetween(nodeIndex.get("key",path.road.toString).getSingle().attr.angle, angleL, angleH) || (roadMap(setPath) != mainRoad)
-        if (rightDirection && checkPath(path.toList, candidateNodes)) {
+        if (checkPath(path.toList, candidateNodes)) {
           passed += path
         }
       }
@@ -449,7 +449,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     out.toMap
   }
 
-  private def checkPath(path: List[Long], candidateNodes: List[Long]) : Boolean = {
+  private def checkPath(path: List[String], candidateNodes: List[String]) : Boolean = {
     if (candidateNodes.contains(path(0))) {
       if (path.length == 1) {
         true
@@ -473,7 +473,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     withTx {
         implicit neo =>
         for ((qp,gps) <- candidatePaths) {
-          val road = -1*roadMap(qp);
+          val road = roadMap(qp);
           queryPaths(qp) = createNode
           roadIndex += (queryPaths(qp), "road", road.toString)
           for (gp <- gps) {
@@ -491,7 +491,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     val realPaths = kpg._2
     val road:Stack[(Node,Node)] = new Stack()
     for ((qp, qpn) <- queryPaths) {
-      val sameRoad = roadIndex.get("road",(-1*roadMap(qp)).toString).toSet
+      val sameRoad = roadIndex.get("road",(roadMap(qp)).toString).toSet
       for (qpn2 <- sameRoad) {
         if (qpn != qpn2) {
           road.push((qpn,qpn2))
@@ -511,7 +511,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   withTx {
       implicit neo =>
         for ((rpn,rpn2) <- road) {
-          rpn --> "CLOSE"  --> rpn2
+          rpn --> "SAME_ROAD"  --> rpn2
        }
     }
   }
@@ -646,6 +646,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   private def generateShapefile(candidatePaths: Map[List[GraphNode], List[GraphPath]]) = {
     val finalPaths:List[GraphPath] = candidatePaths.values.toList.flatten
     val finalNodes = graphPaths2NodeSet(finalPaths)
+    println(finalNodes.size)
     val Place = "id".of[String] ~ "the_geom".of[Point]
     forceXYMode()
     val lonlat = lookupEPSG("EPSG:4326").get

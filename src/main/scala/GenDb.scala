@@ -52,7 +52,7 @@ import org.json4s.native.Serialization
 import math._
 
 case class GraphNode(
-  key:Long,
+  key:String,
   attr:Attributes,
   x:Double = -1,
   y:Double = -1
@@ -76,7 +76,7 @@ case class Attributes(
   angle:Double = -1
 )
 
-case class GraphPath(index:Int, road:Long = -1)
+case class GraphPath(index:Int, road:String = -1.toString)
 
 class GenDb(db_path: String, nodes_path: String, edges_path: String)
 extends Neo4jWrapper
@@ -97,9 +97,11 @@ with TypedTraverser {
 
     implicit val formats = Serialization.formats(NoTypeHints)
     val decodeNodes = Serialization.read[List[GraphNode]](nodes_json)
-    val decodeEdges = Serialization.read[Map[String, List[Long]]](edges_json)
+    val decodeEdges = Serialization.read[Map[String, List[String]]](edges_json)
+    println("NUMBER OF NODES " + decodeEdges.size)
     val node_map = (for (p <- decodeNodes) yield (p.key, p)).toMap
-    val N = 11
+    val N = 8
+    var edge_count = 0
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
     val heightIndex = getNodeIndex("heightIndex").get
@@ -107,9 +109,9 @@ with TypedTraverser {
     val roadIndex = getNodeIndex("kPartiteRoadIndex").get
 
     val LABELSIZE = 3
-    val SENTINEL = -1
-    val SINKKEY = -1
-    val SOURCEKEY = -2
+    val SENTINEL = "-1"
+    val SINKKEY = "-1"
+    val SOURCEKEY = "-2"
     val SOURCENODE = GraphNode(SOURCEKEY, Attributes(-1))
     val SINKNODE = GraphNode(SINKKEY, Attributes(-1))
     val (source, sink) =
@@ -147,14 +149,15 @@ with TypedTraverser {
 
     def processBuilding(v:GraphNode, n:Node) = {
       heightIndex += (n, "height", v.attr.height.toString)
-      for (e:Long <- decodeEdges.getOrElse(v.key.toString, Nil)){
+      for (e:String <- decodeEdges.getOrElse(v.key.toString, Nil)){
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.getOrElse(e,SOURCENODE)
         if (node_f != SOURCENODE){
+          edge_count += 1;
           node_f.attr.nodeType match {
             case 0 => n --> "NEXT_TO" --> node
             case 1 => n --> "NEXT_TO" --> node
-            case 2 => n --> "ON" --> node
+            case 2 => //nop
           }
         }
       }
@@ -162,10 +165,11 @@ with TypedTraverser {
 
     def processRoad(v:GraphNode, n:Node) = {
       roadClassIndex += (n, "roadClass", v.attr.roadClass.toString)
-      for (e:Long <- decodeEdges.getOrElse(v.key.toString, Nil)){
+      for (e:String <- decodeEdges.getOrElse(v.key.toString, Nil)){
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.getOrElse(e,SOURCENODE)
         if (node_f != SOURCENODE){
+          edge_count += 1;
           node_f.attr.nodeType match {
             case 0 => node --> "ON" --> n
             case 1 => node --> "CONNECTS" --> n
@@ -177,10 +181,11 @@ with TypedTraverser {
 
     def processIntersection(v:GraphNode, n:Node) = {
       degreeIndex += (n, "degree", v.attr.degree.toString)
-      for (e:Long <- decodeEdges.getOrElse(v.key.toString, Nil)) {
+      for (e:String <- decodeEdges.getOrElse(v.key.toString, Nil)) {
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.getOrElse(e,SOURCENODE)
         if (node_f != SOURCENODE){
+          edge_count += 1;
           node_f.attr.nodeType match {
             case 0 => n --> "NEXT_TO" --> node
             case 1 => assert(false, "Intersections should not be connected to other intersections")
@@ -193,7 +198,10 @@ with TypedTraverser {
     val expander = pathExpanderForTypes("NEXT_TO", Direction.OUTGOING)
     val finder = GraphAlgoFactory.allSimplePaths(expander, N)
     val NODETYPE = 1
+    println("Number of edges: " + edge_count);
+    println("Finding all Paths")
     val allPaths:List[Path] = finder.findAllPaths(source,sink).toList
+    println("Number of paths " + allPaths.size)
     val paths =
         (allPaths map {path =>
           (path filter { pathElem =>
@@ -211,19 +219,17 @@ with TypedTraverser {
           }))
     // TODO: The traversal library currently used by Neo4j-Scala is deprecated
     // Fix in forked repo (it is a quite simple fix)
-
+    println("Building Single Road Paths")
     val singleRoadPathsSet =
     (paths map { path =>
       (path,
-      (path map {node =>
+        (path filter {node =>
+                          !(node.attr.nodeType == Matcher.INTERSECTION ||
+                           node.getRelationships("ON",Direction.OUTGOING).toList.size > 1)
+        } map {node =>
         node.traverse(Traverser.Order.BREADTH_FIRST,
                      {tp: TraversalPosition =>
-                       tp.depth > 1 ||
-                       {
-                         val cn = tp.currentNode()
-                         (cn.attr.nodeType == Matcher.INTERSECTION ||
-                           cn.getRelationships("ON",Direction.OUTGOING).toList.size > 1)
-                       }
+                       tp.depth > 0
                      },
                      {tp:TraversalPosition =>
                         tp.currentNode().attr.nodeType == Matcher.ROAD
@@ -243,9 +249,8 @@ with TypedTraverser {
       map { path =>
         if (path._1.head.key > path._1.last.key) (path._1.reverse, path._2) else (path._1, path._2)
       }).toList
+    println("Number of singleRoadPaths " + singleRoadPaths.size)
     /* TODO: Find out why there are duplicates in the above list */
-    println(singleRoadPathsSet.size)
-    println(singleRoadPaths.size)
     // Create a histogram of paths store in mongoDB
     val mongoClient = MongoClient()
     val db = mongoClient("graphmatch")
