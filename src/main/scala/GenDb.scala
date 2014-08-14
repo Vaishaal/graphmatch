@@ -100,7 +100,7 @@ with TypedTraverser {
     val decodeEdges = Serialization.read[Map[String, List[String]]](edges_json)
     println("NUMBER OF NODES " + decodeEdges.size)
     val node_map = (for (p <- decodeNodes) yield (p.key, p)).toMap
-    val N = 8
+    val N = 7
     var edge_count = 0
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
@@ -217,16 +217,22 @@ with TypedTraverser {
           if (node.attr.nodeType == Matcher.ROAD) {
             //assert(false, "ROADS CANT SHOW UP ON PATHS")
           }))
+
+    val debugHistMap = new collection.mutable.HashMap[Int,Int]
+    for ((p,i) <- paths.zipWithIndex) {
+      debugHistMap(p.size) = debugHistMap.getOrElse(p.size,0) + 1
+    }
+    println(debugHistMap)
+
     // TODO: The traversal library currently used by Neo4j-Scala is deprecated
     // Fix in forked repo (it is a quite simple fix)
-    println("Building Single Road Paths")
     val singleRoadPathsSet =
     (paths map { path =>
       (path,
         (path filter {node =>
                           !(node.attr.nodeType == Matcher.INTERSECTION ||
                            node.getRelationships("ON",Direction.OUTGOING).toList.size > 1)
-        } map {node =>
+                         } map {node =>
         node.traverse(Traverser.Order.BREADTH_FIRST,
                      {tp: TraversalPosition =>
                        tp.depth > 0

@@ -76,7 +76,7 @@ object Matcher {
   val BUILDING = 0
   val INTERSECTION = 1
   val ROAD = 2
-  val MAX_PATH_LENGTH = 10
+  val MAX_PATH_LENGTH = 7
 
   def distance(p1:(Double, Double), p2:(Double,Double)) = {
     val dx = p1._1 - p2._1
@@ -110,6 +110,8 @@ object Matcher {
     val costs = matcher.computeCost(singleRoadPaths)
     // Use greedy set cover to compute the best paths decomposition.
     val coveringPaths = matcher.coverQuery(singleRoadPaths, costs)
+    println(coveringPaths.size)
+    return
     val roadPaths =
     coveringPaths map {path =>
       (path map {node:GraphNode =>
@@ -129,10 +131,11 @@ object Matcher {
     val candidatePaths:Map[List[GraphNode], List[GraphPath]] = matcher.getCandidatePaths(candidateNodes, coveringPaths)
     println("Candidate paths " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
     val kpg:KPartiteGraph = matcher.createKPartite(candidatePaths);
-    //matcher.addCloseEdges(kpg);
-    matcher.addRoadEdges(kpg);
+    matcher.addCloseEdges(kpg);
+    //matcher.addRoadEdges(kpg);
     matcher.prune(kpg, candidatePaths);
     val newCandidatePaths = matcher.kPartite2CandidatePaths(kpg, candidatePaths);
+    matcher.destroyKPartite(kpg)
     println("Pruned Candidate paths " + newCandidatePaths.keySet.toList.map(newCandidatePaths(_).size).toList)
     matcher.generateShapefile(newCandidatePaths)
   }
@@ -473,7 +476,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[String]], alpha:
     withTx {
         implicit neo =>
         for ((qp,gps) <- candidatePaths) {
-          val road = roadMap(qp);
+          val road = "-" + roadMap(qp);
           queryPaths(qp) = createNode
           roadIndex += (queryPaths(qp), "road", road.toString)
           for (gp <- gps) {
@@ -491,7 +494,8 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[String]], alpha:
     val realPaths = kpg._2
     val road:Stack[(Node,Node)] = new Stack()
     for ((qp, qpn) <- queryPaths) {
-      val sameRoad = roadIndex.get("road",(roadMap(qp)).toString).toSet
+      println("-" + roadMap(qp))
+      val sameRoad = roadIndex.get("road", "-" + ((roadMap(qp)).toString)).toSet
       for (qpn2 <- sameRoad) {
         if (qpn != qpn2) {
           road.push((qpn,qpn2))
@@ -562,7 +566,6 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[String]], alpha:
    */
   def prune(kpg:Matcher.KPartiteGraph, candidatePaths: Map[List[GraphNode], List[GraphPath]])
   {
-    println("PRUNING")
     val queryPaths:HashMap[List[GraphNode],Node] = kpg._1
     val realPaths:HashMap[(Node,GraphPath),Node] = kpg._2
     val allPaths:List[GraphPath] = candidatePaths.values.flatten.toList
@@ -657,6 +660,24 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[String]], alpha:
     val layer = (ws.create(schema)).writable.get
     for (n <- finalNodes){
       layer += mkFeature(n.key.toString ~ transform(Point(n.x,n.y)))
+    }
+  }
+
+  private def destroyKPartite(kpg:Matcher.KPartiteGraph) = {
+    println("Destroying KPartite Graph!")
+    val realPaths:HashMap[(Node,GraphPath),Node] = kpg._2
+    val queryPaths:HashMap[List[GraphNode],Node] = kpg._1
+    withTx {
+      implicit neo =>
+        for (node <- realPaths.values) {
+          node.getRelationships().map(r => r.delete());
+          node.delete();
+        }
+
+        for (node <- queryPaths.values) {
+          node.getRelationships().map(r => r.delete());
+          node.delete();
+        }
     }
   }
 
