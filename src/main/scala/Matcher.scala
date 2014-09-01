@@ -153,7 +153,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   ShutdownHookThread {
     shutdown(ds)
   }
-  val DENSITY = 3
+  val DENSITY = 10
   val DEFAULTCARDINALITY = 100
   val nodeIndex = getNodeIndex("keyIndex").get
   val roadIndex = getNodeIndex("kPartiteRoadIndex").get
@@ -511,7 +511,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   withTx {
       implicit neo =>
         for ((rpn,rpn2) <- road) {
-          rpn --> "CLOSE"  --> rpn2
+          rpn --> "SAME_ROAD"  --> rpn2
        }
     }
   }
