@@ -99,7 +99,7 @@ with TypedTraverser {
     val decodeNodes = Serialization.read[List[GraphNode]](nodes_json)
     val decodeEdges = Serialization.read[Map[String, List[Long]]](edges_json)
     val node_map = (for (p <- decodeNodes) yield (p.key, p)).toMap
-    val N = 11
+    val N = 7
     val nodeIndex = getNodeIndex("keyIndex").get
     val degreeIndex = getNodeIndex("degreeIndex").get
     val heightIndex = getNodeIndex("heightIndex").get
@@ -167,8 +167,8 @@ with TypedTraverser {
         val node_f = node_map.getOrElse(e,SOURCENODE)
         if (node_f != SOURCENODE){
           node_f.attr.nodeType match {
-            case 0 => node --> "ON" --> n
-            case 1 => node --> "CONNECTS" --> n
+            case 0 => //
+            case 1 => //
             case 2 => assert(false,"Blocks should not touch blocks")
           }
         }
@@ -184,7 +184,7 @@ with TypedTraverser {
           node_f.attr.nodeType match {
             case 0 => n --> "NEXT_TO" --> node
             case 1 => assert(false, "Intersections should not be connected to other intersections")
-            case 2 => n --> "CONNECTS" --> node
+            case 2 => n --> "ON" --> node
           }
           }
         }
@@ -211,19 +211,18 @@ with TypedTraverser {
           }))
     // TODO: The traversal library currently used by Neo4j-Scala is deprecated
     // Fix in forked repo (it is a quite simple fix)
-
+    println(paths.size)
     val singleRoadPathsSet =
     (paths map { path =>
       (path,
-      (path map {node =>
+        (path filter {node =>
+          node.getRelationships("ON", Direction.OUTGOING).size == 1 &&
+          node.attr.nodeType != Matcher.INTERSECTION
+        }
+        map {node =>
         node.traverse(Traverser.Order.BREADTH_FIRST,
                      {tp: TraversalPosition =>
-                       tp.depth > 1 ||
-                       {
-                         val cn = tp.currentNode()
-                         (cn.attr.nodeType == Matcher.INTERSECTION ||
-                           cn.getRelationships("ON",Direction.OUTGOING).toList.size > 1)
-                       }
+                       tp.depth > 0
                      },
                      {tp:TraversalPosition =>
                         tp.currentNode().attr.nodeType == Matcher.ROAD
@@ -233,8 +232,9 @@ with TypedTraverser {
                      )
       } map (t => t.toList)).toList)
     } filter {
-      pathR => (pathR._2.flatten.toSet.size == 1 &&
-                pathR._1.head.attr.nodeType != Matcher.ROAD)
+      pathR =>
+      (pathR._2.flatten.toSet.size == 1 &&
+         pathR._1.head.attr.nodeType != Matcher.ROAD)
     } map {
       pathR => (pathR._1, pathR._2.flatten.head)
     }).toSet
