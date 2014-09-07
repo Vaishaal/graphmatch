@@ -153,7 +153,8 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   ShutdownHookThread {
     shutdown(ds)
   }
-  val DENSITY = 10
+  val DENSITY = 50
+  val CLOSENESS = 100
   val DEFAULTCARDINALITY = 100
   val nodeIndex = getNodeIndex("keyIndex").get
   val roadIndex = getNodeIndex("kPartiteRoadIndex").get
@@ -543,12 +544,9 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       val point = (rp.head.x,rp.head.y)
       val points = tree.findNearest(point,DENSITY)
       for (otherPoint <- points; rpn2 <- mm(otherPoint)) {
-        if (rp != rpn2._1) {
+        if (rp != rpn2._1 && Matcher.distance(otherPoint, point) < CLOSENESS) {
           close.push((rpn,rpn2._2))
-        } else{
-          println("NO SELF EDGES")
         }
-
       }
     }
     withTx {
