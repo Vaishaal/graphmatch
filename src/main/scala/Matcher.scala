@@ -124,10 +124,10 @@ object Matcher {
     val prelimNodes = matcher.nodesByPath(coveringPaths)
     // Compute node level statistics and get candidate nodes.
     val candidateNodes = matcher.getCandidateNodes(prelimNodes)
-    println(candidateNodes)
     // Compute path level statistics and get candidate paths.
     val candidatePaths:Map[List[GraphNode], List[GraphPath]] = matcher.getCandidatePaths(candidateNodes, coveringPaths)
     println("Candidate paths " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList)
+    println("Candidate paths size " + candidatePaths.keySet.toList.map(candidatePaths(_).size).toList.sum)
     val kpg:KPartiteGraph = matcher.createKPartite(candidatePaths);
     matcher.addCloseEdges(kpg);
     matcher.addRoadEdges(kpg);
@@ -138,7 +138,7 @@ object Matcher {
   }
 }
 
-class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637", val angleL:Double=357.287, val angleH:Double=194.614, val mainRoad:Int=(21)) // scalastyle:ignore
+class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Double, dbPath: String, queryDistance:Int = 1, val utmZone:String = "EPSG:32637", val angleL:Double=357.287, val angleH:Double=194.614, val mainRoad:Int=(-1)) // scalastyle:ignore
   extends Neo4jWrapper
   with EmbeddedGraphDatabaseServiceProvider
   with Neo4jIndexProvider
@@ -530,22 +530,25 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
         close.push((qpn, qpn2))
       }
     }
-
     // Maps List of Neo4j nodes to a "SuperNode" representing that particular path
-    val pathNodes:HashMap[List[Node], Node] = realPaths.map(kv => (kv._1._2.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle()),kv._2))
-    val mm = new HashMap[(Double,Double), Set[Node]] with MultiMap[(Double,Double), Node]
-    for ((rp,rpn) <- pathNodes) {
-      mm.addBinding((rp.head.x,rp.head.y),rpn)
+    val pathNodes:HashMap[(Node,List[Node]), Node] = realPaths.map(kv => ((kv._1._1,kv._1._2.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle())),kv._2))
+    val mm = new HashMap[(Double,Double), Set[(List[Node],Node)]] with MultiMap[(Double,Double), (List[Node],Node)]
+    var bindings = 0;
+    for (((qpn,rp),rpn) <- pathNodes) {
+      mm.addBinding((rp.head.x,rp.head.y),(rp,rpn))
+      bindings +=1;
     }
     val tree = KDTree.fromSeq(mm.keySet.toList)
-    for ((rp,rpn) <- pathNodes) {
+    for (((qpn,rp),rpn) <- pathNodes) {
       val point = (rp.head.x,rp.head.y)
-      for (rpn2 <- mm(point)) {
-        close.push((rpn,rpn2))
-      }
       val points = tree.findNearest(point,DENSITY)
       for (otherPoint <- points; rpn2 <- mm(otherPoint)) {
-        close.push((rpn,rpn2))
+        if (rp != rpn2._1) {
+          close.push((rpn,rpn2._2))
+        } else{
+          println("NO SELF EDGES")
+        }
+
       }
     }
     withTx {
@@ -654,6 +657,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     val (schema, mkFeature) = Place.schemaAndFactory("output",lonlat)
     val ws = Directory("output/")
     val layer = (ws.create(schema)).writable.get
+    println(finalNodes.size)
     for (n <- finalNodes){
       layer += mkFeature(n.key.toString ~ transform(Point(n.x,n.y)))
     }
