@@ -92,7 +92,7 @@ object Matcher {
     val edges_json = scala.io.Source.fromFile(queryEdges).mkString
     val nodes = Serialization.read[List[GraphNode]](nodes_json)
     val edges = Serialization.read[Map[String,List[Int]]](edges_json)
-    val matcher = new Matcher(nodes, edges, 0.5, dbPath)
+    val matcher = new Matcher(nodes, edges, 1, dbPath)
     // Decompose the query into all possible paths of a given length.
     val paths = matcher.getPaths(maxDepth)
     val singleRoadPaths =
@@ -175,7 +175,7 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
   private def computeCost (paths: List[List[GraphNode]]) : List[Double] = {
     val costs = ListBuffer[Double]()
     for ((path, i) <- paths.view.zipWithIndex) {
-      costs += this.pIndexHist(path)/(this.degree(path)*this.density(path))
+      costs += this.pIndexHist(path, this.minProb)/(this.degree(path)*this.density(path))
     }
     costs.toList
   }
@@ -216,19 +216,10 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
     coveringPaths.toList
   }
 
-  private def pIndexHist(path: List[GraphNode]) : Int =
+  private def pIndexHist(path: List[GraphNode], minProb: Double) : Int =
   {
-    val key = path.map(x => (DefiniteAttributes(degree=x.attr.degree,nodeType=x.attr.nodeType)))
-    val kJson = Serialization.write(key)
-    val o = MongoDBObject("_id" -> kJson)
-    val result = hist_col.findOne(o)
-    /* TODO: DO NOT USE asInstanceOf here */
-    val count = result.map(x => x.getAs[Int]("count")).getOrElse(Some(0)).getOrElse(0)
-    if (count == 0) {
-      Int.MaxValue
-    } else {
-      count
-    }
+    val paths = pIndex(path, minProb)
+    return paths.size
   }
 
   private def pIndex(path: List[GraphNode], minProb: Double) : List[GraphPath] =
@@ -238,7 +229,8 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
      val o = MongoDBObject("_id" -> kJson)
      val result = path_col.findOne(o)
      val paths = result.map(_.getAs[List[Int]]("paths")).flatten.getOrElse(Nil)
-     paths map (pi => GraphPath(pi, path_lookup_col.findOne(MongoDBObject("_id" -> pi)).map(_.getAs[Long]("road")).flatten.getOrElse(-1)))
+     val graphPaths = paths map (pi => GraphPath(pi, path_lookup_col.findOne(MongoDBObject("_id" -> pi)).map(_.getAs[Long]("road")).flatten.getOrElse(-1), path_lookup_col.findOne(MongoDBObject("_id" -> pi)).map(_.getAs[Double]("weight")).flatten.getOrElse(1.0)))
+    graphPaths filter (_.weight >= minProb)
   }
 
   private def getPaths (maxLength: Int) : List[List[GraphNode]] = {
@@ -532,7 +524,9 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
       }
     }
     // Maps List of Neo4j nodes to a "SuperNode" representing that particular path
-    val pathNodes:HashMap[(Node,List[Node]), Node] = realPaths.map(kv => ((kv._1._1,kv._1._2.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle())),kv._2))
+    val pathNodes:HashMap[(Node,List[Node]), Node] = realPaths map {kv =>
+      ((kv._1._1,kv._1._2.map(nodeId => nodeIndex.get("key",nodeId.toString).getSingle())),kv._2)
+    }
     val mm = new HashMap[(Double,Double), Set[(List[Node],Node)]] with MultiMap[(Double,Double), (List[Node],Node)]
     var bindings = 0;
     for (((qpn,rp),rpn) <- pathNodes) {

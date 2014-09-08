@@ -48,7 +48,8 @@ case class Config(gen: Boolean = false,
                   queryEdges: String = "",
                   dbpath: String = "/tmp/test.db",
                   nodejsonpath: String = "bg.nodes.json",
-                  edgejsonpath: String = "bg.edges.json"
+                  edgejsonpath: String = "bg.edges.json",
+                  weightjsonpath: String = "bg.weights.json"
                   )
 object Main extends App {
 
@@ -71,7 +72,7 @@ val parser = new scopt.OptionParser[Config]("graphmatch") {
   .text("Location of neo4j database ")
 
   opt[String]("db")
-  .action { (x, c) => c.copy(nodejsonpath = x + ".nodes.json").copy(edgejsonpath = x +  ".edges.json")}
+  .action { (x, c) => c.copy(nodejsonpath = x + ".nodes.json").copy(edgejsonpath = x +  ".edges.json").copy(weightjsonpath = x + ".weights.json")}
   .text("location of db json")
 
 }
@@ -82,7 +83,7 @@ parser.parse(args, Config()) map {
                                ("rm -rf " + config.dbpath).!!
                                MongoClient()("graphmatch").dropDatabase()
                               }
-            if (config.gen) { new GenDb(config.dbpath, config.nodejsonpath, config.edgejsonpath)
+            if (config.gen) { new GenDb(config.dbpath, config.nodejsonpath, config.edgejsonpath, config.weightjsonpath)
                               println("Data base successfully generated")
                             }
             if (config.queryNodes != "") Matcher.query(config.queryNodes,config.queryEdges, config.dbpath)

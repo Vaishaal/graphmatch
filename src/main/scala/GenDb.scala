@@ -49,6 +49,7 @@ import org.json4s.native.JsonMethods._
 import org.json4s.JsonDSL._
 import org.json4s._
 import org.json4s.native.Serialization
+import scala.collection.mutable.ListBuffer
 import math._
 
 case class GraphNode(
@@ -76,9 +77,9 @@ case class Attributes(
   angle:Double = -1
 )
 
-case class GraphPath(index:Int, road:Long = -1)
+case class GraphPath(index:Int, road:Long = -1, weight:Double = 1)
 
-class GenDb(db_path: String, nodes_path: String, edges_path: String)
+class GenDb(db_path: String, nodes_path: String, edges_path: String, weights_path: String)
 extends Neo4jWrapper
 with EmbeddedGraphDatabaseServiceProvider
 with Neo4jIndexProvider
@@ -94,10 +95,12 @@ with TypedTraverser {
     def neo4jStoreDir = db_path
     val nodes_json = scala.io.Source.fromFile(nodes_path).mkString
     val edges_json = scala.io.Source.fromFile(edges_path).mkString
+    val weights_json = scala.io.Source.fromFile(weights_path).mkString
 
     implicit val formats = Serialization.formats(NoTypeHints)
     val decodeNodes = Serialization.read[List[GraphNode]](nodes_json)
     val decodeEdges = Serialization.read[Map[String, List[Long]]](edges_json)
+    val decodeWeights = Serialization.read[Map[String, List[Double]]](weights_json)
     val node_map = (for (p <- decodeNodes) yield (p.key, p)).toMap
     val N = 7
     val nodeIndex = getNodeIndex("keyIndex").get
@@ -126,9 +129,7 @@ with TypedTraverser {
             v.attr.nodeType match {
               case 0 => processBuilding(v, node)
               case 1 => processIntersection(v, node)
-              case 2 => processRoad(v, node)
-              }
-            }
+              case 2 => processRoad(v, node) } }
             (source, sink)
           }
     /* Binds everything in gn to neo4j node instance in node */
@@ -147,14 +148,24 @@ with TypedTraverser {
 
     def processBuilding(v:GraphNode, n:Node) = {
       heightIndex += (n, "height", v.attr.height.toString)
-      for (e:Long <- decodeEdges.getOrElse(v.key.toString, Nil)){
+      for ((e:Long,i) <- decodeEdges.getOrElse(v.key.toString, Nil).zipWithIndex){
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.getOrElse(e,SOURCENODE)
         if (node_f != SOURCENODE){
           node_f.attr.nodeType match {
-            case 0 => n --> "NEXT_TO" --> node
-            case 1 => n --> "NEXT_TO" --> node
-            case 2 => n --> "ON" --> node
+            case 0 => {
+                       val rel:PropertyContainer = n --> "NEXT_TO" --> node <
+                       val weight:Double = (decodeWeights.get(v.key.toString).get)(i)
+                       rel("weight") = weight
+                      }
+            case 1 => {
+                      val rel:PropertyContainer = n --> "NEXT_TO" --> node <
+                      val weight:Double = (decodeWeights.get(v.key.toString).get)(i)
+                       rel("weight") = weight
+                      }
+            case 2 => {
+                      val rel:PropertyContainer = n --> "ON" --> node <
+                      }
           }
         }
       }
@@ -177,14 +188,22 @@ with TypedTraverser {
 
     def processIntersection(v:GraphNode, n:Node) = {
       degreeIndex += (n, "degree", v.attr.degree.toString)
-      for (e:Long <- decodeEdges.getOrElse(v.key.toString, Nil)) {
+      for ((e:Long,i) <- decodeEdges.getOrElse(v.key.toString, Nil).zipWithIndex) {
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.getOrElse(e,SOURCENODE)
         if (node_f != SOURCENODE){
           node_f.attr.nodeType match {
-            case 0 => n --> "NEXT_TO" --> node
+            case 0 =>
+            {
+              val rel = n --> "NEXT_TO" --> node <
+              val weight:Double = (decodeWeights.get(v.key.toString).get)(i)
+              rel("weight") = weight
+            }
             case 1 => assert(false, "Intersections should not be connected to other intersections")
-            case 2 => n --> "ON" --> node
+            case 2 =>
+            {
+              val rel:PropertyContainer = n --> "ON" --> node <
+            }
           }
           }
         }
@@ -194,6 +213,17 @@ with TypedTraverser {
     val finder = GraphAlgoFactory.allSimplePaths(expander, N)
     val NODETYPE = 1
     val allPaths:List[Path] = finder.findAllPaths(source,sink).toList
+    val pathEdges:Vector[List[Double]] =
+        (allPaths map {path =>
+          (path.drop(2).dropRight(2) filter { pathElem =>
+            pathElem match {
+              case y:Node => false
+              case y:Relationship => true
+            }
+          } map { pathElem =>
+            pathElem.asInstanceOf[Relationship]("weight").get.asInstanceOf[Double]
+          }).toList
+        }).to[Vector]
     val paths =
         (allPaths map {path =>
           (path filter { pathElem =>
@@ -213,7 +243,8 @@ with TypedTraverser {
     // Fix in forked repo (it is a quite simple fix)
     println(paths.size)
     val singleRoadPathsSet =
-    (paths map { path =>
+    (paths.zipWithIndex map { pathAndIndex =>
+      val path = pathAndIndex._1;
       (path,
         (path filter {node =>
           node.getRelationships("ON", Direction.OUTGOING).size == 1 &&
@@ -230,18 +261,21 @@ with TypedTraverser {
                      "ON",
                      Direction.OUTGOING
                      )
-      } map (t => t.toList)).toList)
+        } map (t => t.toList)).toList, pathEdges(pathAndIndex._2).foldLeft(1.0)
+            {(b,a) =>
+              b*a
+            })
     } filter {
       pathR =>
       (pathR._2.flatten.toSet.size == 1 &&
          pathR._1.head.attr.nodeType != Matcher.ROAD)
     } map {
-      pathR => (pathR._1, pathR._2.flatten.head)
+      pathR => (pathR._1, pathR._2.flatten.head, pathR._3)
     }).toSet
     val singleRoadPaths =
       (singleRoadPathsSet filter (path => path._1.size > 0)
       map { path =>
-        if (path._1.head.key > path._1.last.key) (path._1.reverse, path._2) else (path._1, path._2)
+        if (path._1.head.key > path._1.last.key) (path._1.reverse, path._2, path._3) else (path._1, path._2, path._3)
       }).toList
     /* TODO: Find out why there are duplicates in the above list */
     println(singleRoadPathsSet.size)
@@ -263,8 +297,8 @@ with TypedTraverser {
     val pathCol = db("paths")
 
     for ((p,i) <- singleRoadPaths.zipWithIndex) {
-      val path = GraphPath(i,p._2.key)
-      val path_obj = MongoDBObject("_id"->i,"path"->(p._1 map (_.key)), "road" -> p._2.key)
+      val path = GraphPath(i,p._2.key, p._3)
+      val path_obj = MongoDBObject("_id"->i,"path"->(p._1 map (_.key)), "road" -> p._2.key, "weight" -> p._3)
       pathLookup.insert(path_obj)
       index2Path(i) = path
       val key = p._1 map (node => Attribute2DefiniteAttribute(node.attr))
