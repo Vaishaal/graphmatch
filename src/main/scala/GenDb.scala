@@ -188,6 +188,7 @@ with TypedTraverser {
 
     def processIntersection(v:GraphNode, n:Node) = {
       degreeIndex += (n, "degree", v.attr.degree.toString)
+      if (v.key == 1049038) { println("GREAT SUCCESS!")}
       for ((e:Long,i) <- decodeEdges.getOrElse(v.key.toString, Nil).zipWithIndex) {
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.getOrElse(e,SOURCENODE)
@@ -297,11 +298,12 @@ with TypedTraverser {
     val pathCol = db("paths")
 
     for ((p,i) <- singleRoadPaths.zipWithIndex) {
+      val pathKeys = p._1 map (_.key)
+      val key = p._1 map (node => Attribute2DefiniteAttribute(node.attr))
       val path = GraphPath(i,p._2.key, p._3)
       val path_obj = MongoDBObject("_id"->i,"path"->(p._1 map (_.key)), "road" -> p._2.key, "weight" -> p._3)
       pathLookup.insert(path_obj)
       index2Path(i) = path
-      val key = p._1 map (node => Attribute2DefiniteAttribute(node.attr))
       histMap(key) = histMap.getOrElse(key,0) + 1
       pathMap(key) = pathMap.getOrElse(key, Nil) ::: (i :: Nil)
     }
