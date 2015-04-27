@@ -494,10 +494,10 @@ class Matcher (nodeList: List[GraphNode], edges:Map[String,List[Int]], alpha: Do
         implicit neo =>
         for ((qp,gps) <- candidatePaths) {
           val road = -1*roadMap(qp);
-          queryPaths(qp) = createNode
+          queryPaths(qp) = createNode()
           roadIndex += (queryPaths(qp), "road", road.toString)
           for (gp <- gps) {
-            realPaths((queryPaths(qp),gp)) = createNode
+            realPaths((queryPaths(qp),gp)) = createNode()
             roadIndex += (realPaths(queryPaths(qp),gp), "road", gp.road.toString)
           }
         }

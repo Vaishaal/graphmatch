@@ -99,6 +99,7 @@ with TypedTraverser {
 
     implicit val formats = Serialization.formats(NoTypeHints)
     val decodeNodes = Serialization.read[List[GraphNode]](nodes_json)
+    println("NODES SIZE " + decodeNodes.size)
     val decodeEdges = Serialization.read[Map[String, List[Long]]](edges_json)
     val decodeWeights = Serialization.read[Map[String, List[Double]]](weights_json)
     val node_map = (for (p <- decodeNodes) yield (p.key, p)).toMap
@@ -118,9 +119,9 @@ with TypedTraverser {
     val (source, sink) =
       withTx {
         implicit neo =>
-          val source = bindNode(SOURCENODE, createNode)
-          val sink = bindNode(SINKNODE, createNode)
-          val nodes = (for ((k, v) <- node_map) yield (k, bindNode(v, createNode))).toMap
+          val source = bindNode(SOURCENODE, createNode())
+          val sink = bindNode(SINKNODE, createNode())
+          val nodes = (for ((k, v) <- node_map) yield (k, bindNode(v, createNode()))).toMap
           for ((k,v) <- node_map) nodeIndex += (nodes(k), "key", k.toString)
           for ((k,v) <- node_map) {
             val node = nodes(k)
@@ -188,7 +189,6 @@ with TypedTraverser {
 
     def processIntersection(v:GraphNode, n:Node) = {
       degreeIndex += (n, "degree", v.attr.degree.toString)
-      if (v.key == 1049038) { println("GREAT SUCCESS!")}
       for ((e:Long,i) <- decodeEdges.getOrElse(v.key.toString, Nil).zipWithIndex) {
         val node = nodeIndex.get("key",e.toString).getSingle()
         val node_f = node_map.getOrElse(e,SOURCENODE)
